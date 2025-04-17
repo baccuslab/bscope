@@ -1,0 +1,224 @@
+from .logger import Logger
+import numpy as np
+from IPython import embed
+import torch
+import torch.nn as nn
+
+
+class Scope:
+
+    def __init__(self, model, layer_list):
+        model.eval()
+        self.model = model
+        self.layer_list = layer_list
+
+        self.logger = Logger(layer_list)
+        self.num_layers = len(layer_list)
+
+        self.contribution_type = None
+        self.contribution_target = None
+
+        # Clear
+    def with_smooth_grad(self, sigma, steps):
+        self.contribution_type = 'smooth_grad'
+        self.sigma = sigma
+        self.steps = steps
+
+    def with_int_grad(self, steps):
+        self.contribution_type = 'int_grad'
+        self.steps = steps
+
+    def with_act_grad(self):
+        self.contribution_type = 'act_grad'
+
+    def to_entropy(self):
+        self.contribution_target = 'entropy'
+
+    def to_output_neuron(self, neuron_index=0, softmax=False):
+        self.contribution_target = 'output_neuron'
+        self.neuron_index = neuron_index
+        self.softmax = softmax
+
+    def to_topk(self, k=5, sofmtax=True):
+        self.contribution_target = 'topk'
+        self.k = k
+        self.softmax = softmax
+
+    def backward(self, y):
+        if self.contribution_target == 'entropy':
+            entropy = -torch.sum(y * torch.log(y + 1e-9), dim=1)
+            entropy.sum().backward()
+
+        elif self.contribution_target == 'output_neuron':
+            y[:, self.neuron_index].sum().backward()
+
+        elif self.contribution_target == 'topk':
+
+            sorted, indices = torch.topk(y, self.k, dim=-1)
+            sorted.sum().backward()
+
+        else:
+            raise ValueError(f"Unknown contribution target: {target}")
+
+    def __call__(self, input_tensor):
+        if self.contribution_type is None:
+            raise ValueError(
+                "Contribution type not set. Use smooth_grad, int_grad, or act_grad."
+            )
+        if self.contribution_target is None:
+            raise ValueError(
+                "Contribution target not set. Use to_entropy, to_output_neuron, or to_topk."
+            )
+
+        # Prepare the stimulus
+        if self.contribution_type == 'int_grad':
+            stim = interpolate_stim(input_tensor, self.steps)
+        elif self.contribution_type == 'smooth_grad':
+            stim = corrupt_stim(input_tensor, self.sigma, self.steps)
+        elif self.contribution_type == 'act_grad':
+            stim = input_tensor.unsqueeze(0)
+            stim.requires_grad = True
+            steps = 1
+        else:
+            raise ValueError(
+                f"Unknown contribution type: {self.contribution_type}")
+
+        self.last_activations = [[] for i in range(self.num_layers)]
+        self.last_gradients = [[] for i in range(self.num_layers)]
+        for step in range(steps):
+            self.model.zero_grad()
+
+            y = self.model(stim[step])
+
+            if self.softmax:
+                y = torch.softmax(y, dim=-1)
+
+            self.backward(y)
+
+            [
+                self.last_activations[i].append(self.logger.activations[i])
+                for i in range(self.num_layers)
+            ]
+            [
+                self.last_gradients[i].append(self.logger.gradients[i])
+                for i in range(self.num_layers)
+            ]
+
+        self.last_activations = [
+            np.array(self.last_activations[i]) for i in range(self.num_layers)
+        ]
+
+        self.last_gradients = [
+            np.array(self.last_gradients[i]) for i in range(self.num_layers)
+        ]
+
+        if self.contribution_type == 'act_grad':
+            contributions = []
+            for layer in range(self.num_layers):
+                act = self.last_activations[layer][0]
+                grad = self.last_gradients[layer][0]
+                contributions.append(np.array(act * grad))
+
+            self.activations = [
+                self.last_activations[layer][0]
+                for layer in range(self.num_layers)
+            ]
+            self.gradients = [
+                self.last_gradients[layer][0]
+                for layer in range(self.num_layers)
+            ]
+        elif self.contribution_type == 'int_grad':
+            contributions = []
+            for layer in range(self.num_layers):
+                interp_activations = self.last_activations[layer]
+                interp_gradients = self.last_gradients[layer]
+                contributions.append(
+                    np.array(
+                        interneuron_integral_approximation(
+                            interp_activations, interp_gradients)))
+
+            self.activations = [
+                self.last_activations[layer][-1]
+                for layer in range(self.num_layers)
+            ]
+            self.gradients = [
+                self.last_gradients[layer][-1]
+                for layer in range(self.num_layers)
+            ]
+
+        elif self.contribution_type == 'smooth_grad':
+            contributions = []
+            for layer in range(self.num_layers):
+                corrupt_activations = self.last_activations[layer]
+                corrupt_gradients = self.last_gradients[layer]
+                contributions.append(
+                    np.mean(corrupt_activations * corrupt_gradients, axis=0))
+
+                self.activations = [
+                    np.mean(np.array(self.last_activations[layer]), axis=0)
+                    for layer in range(self.num_layers)
+                ]
+                self.gradients = [
+                    np.mean(np.array(self.last_gradients[layer]), axis=0)
+                    for layer in range(self.num_layers)
+                ]
+
+        self.contributions = contributions
+
+
+def corrupt_stim(stim, sigma=0.03, steps=10):
+    """
+    Corrupt the stimulus by adding Gaussian noise.
+    """
+    stim = stim.detach()
+    corrupted_stim = []
+    for step in range(steps):
+        noise = torch.randn_like(stim) * sigma
+        corrupted_stim.append(stim + noise)
+    corrupted_stim = torch.stack(corrupted_stim)
+    corrupted_stim.requires_grad = True
+
+    return corrupted_stim
+
+
+def interpolate_stim(stim, steps=10):
+    """
+    Interpolate the stimulus to create a series of inputs for integrated gradients.
+    """
+    stim = stim.detach()
+    baseline = torch.zeros_like(stim)
+
+    interp_stim = [
+        baseline + (float(i) / steps) * (stim - baseline)
+        for i in range(0, steps + 1)
+    ]
+
+    interp_stim = torch.stack(interp_stim)
+    interp_stim.requires_grad = True
+    return interp_stim
+
+
+def interneuron_integral_approximation(acts, grads):
+    """
+    Trapezoidal integral approximation for integrated gradients.
+    """
+    igs = []
+    for i, (a, g) in enumerate(zip(acts, grads)):
+        if i == 0:
+            last_act = a
+            continue
+
+        diff_act = a - last_act
+        last_act = a
+
+        trapezoidal = grads[i - 1] + grads[i]
+
+        trapezoidal /= 2
+
+        ig = trapezoidal * diff_act
+        igs.append(ig)
+
+    igs = np.array(igs)
+    igs = np.sum(igs, axis=0)
+
+    return igs
