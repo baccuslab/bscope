@@ -4,14 +4,14 @@ import torch.nn.functional as F
 import numpy as np
 
 
-class Logger:
+class Inspector:
     """
     A class that logs activations and gradients for multiple layers in a PyTorch model.
     """
 
     def __init__(self, layers_list):
         """
-        Initialize the logger with a list of layers to track.
+        Initialize the inspector with a list of layers to track.
         
         Args:
             layers_list (list): List of PyTorch modules to track

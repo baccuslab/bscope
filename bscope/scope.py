@@ -1,4 +1,5 @@
-from .logger import Logger
+from .inspector import Inspector
+from .utils import ei_split
 import numpy as np
 from IPython import embed
 import torch
@@ -6,45 +7,73 @@ import torch.nn as nn
 
 
 class Scope:
+    """
+    last_X is the full
+    X is the appropriate reduction
+    log_X is the logging of X
+    """
 
     def __init__(self, model, layer_list):
         model.eval()
         self.model = model
         self.layer_list = layer_list
 
-        self.logger = Logger(layer_list)
+        self.inspector = Inspector(layer_list)
         self.num_layers = len(layer_list)
+
+        self.reduction = None
+        self.logging = False
 
         self.contribution_type = None
         self.contribution_target = None
 
-        # Clear
-    def with_smooth_grad(self, sigma, steps):
+    def use_smooth_grad(self, sigma=0.2, steps=5):
         self.contribution_type = 'smooth_grad'
         self.sigma = sigma
         self.steps = steps
 
-    def with_int_grad(self, steps):
+    def use_int_grad(self, steps=5):
         self.contribution_type = 'int_grad'
         self.steps = steps
 
-    def with_act_grad(self):
+    def use_act_grad(self):
         self.contribution_type = 'act_grad'
 
-    def to_entropy(self):
+    def wrt_entropy(self):
         self.contribution_target = 'entropy'
+        self.softmax = True
 
-    def to_output_neuron(self, neuron_index=0, softmax=False):
+    def wrt_output_neuron(self, neuron_index=0, softmax=False):
         self.contribution_target = 'output_neuron'
         self.neuron_index = neuron_index
         self.softmax = softmax
 
-    def to_topk(self, k=5, sofmtax=True):
+    def wrt_topk(self, k=5, softmax=True):
         self.contribution_target = 'topk'
         self.k = k
         self.softmax = softmax
 
-    def backward(self, y):
+    def log_start(self, reduction=None):
+        self.logging = True
+
+        self.log_gradients = [[] for i in range(self.num_layers)]
+        self.log_activations = [[] for i in range(self.num_layers)]
+        self.log_contributions = [[] for i in range(self.num_layers)]
+
+        self.log_outputs = []
+
+        self.reduction = reduction
+
+    def log_stop(self):
+        for i in range(self.num_layers):
+            self.log_gradients[i] = np.concatenate(self.log_gradients[i])
+            self.log_activations[i] = np.concatenate(self.log_activations[i])
+            self.log_contributions[i] = np.concatenate(
+                self.log_contributions[i])
+
+        self.logging = False
+
+    def backward_pass(self, y):
         if self.contribution_target == 'entropy':
             entropy = -torch.sum(y * torch.log(y + 1e-9), dim=1)
             entropy.sum().backward()
@@ -78,14 +107,16 @@ class Scope:
         elif self.contribution_type == 'act_grad':
             stim = input_tensor.unsqueeze(0)
             stim.requires_grad = True
-            steps = 1
+            self.steps = 1
         else:
             raise ValueError(
                 f"Unknown contribution type: {self.contribution_type}")
 
         self.last_activations = [[] for i in range(self.num_layers)]
         self.last_gradients = [[] for i in range(self.num_layers)]
-        for step in range(steps):
+        self.last_outputs = []
+
+        for step in range(self.steps):
             self.model.zero_grad()
 
             y = self.model(stim[step])
@@ -93,14 +124,16 @@ class Scope:
             if self.softmax:
                 y = torch.softmax(y, dim=-1)
 
-            self.backward(y)
+            self.backward_pass(y)
+
+            self.last_outputs.append(y.detach().cpu().numpy())
 
             [
-                self.last_activations[i].append(self.logger.activations[i])
+                self.last_activations[i].append(self.inspector.activations[i])
                 for i in range(self.num_layers)
             ]
             [
-                self.last_gradients[i].append(self.logger.gradients[i])
+                self.last_gradients[i].append(self.inspector.gradients[i])
                 for i in range(self.num_layers)
             ]
 
@@ -164,6 +197,25 @@ class Scope:
                 ]
 
         self.contributions = contributions
+
+        if self.logging:
+            for layer in range(self.num_layers):
+                g = np.array(self.gradients[layer])
+                a = np.array(self.activations[layer])
+                c = np.array(self.contributions[layer])
+
+                if 'ei_split' in self.reduction:
+                    g = ei_split(g)
+                    a = ei_split(a)
+                    c = ei_split(c)
+                if 'spatial_sum' in self.reduction:
+                    g = g.sum((2, 3))
+                    a = a.sum((2, 3))
+                    c = c.sum((2, 3))
+
+                self.log_gradients[layer].append(g)
+                self.log_activations[layer].append(a)
+                self.log_contributions[layer].append(c)
 
 
 def corrupt_stim(stim, sigma=0.03, steps=10):

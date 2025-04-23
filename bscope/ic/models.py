@@ -22,7 +22,7 @@ def get_alexnet(imagenet_path='/mnt/data/imagenet', batch_size=64):
     return model, val_dataset, val_dataloader
 
 
-def get_mobilenet(imagenet_path='/mnt/data/imagenet', batch_size=64):
+def get_mobilenet(imagenet_path='/mnt/data/imagenet', **kwargs):
     weights = MobileNet_V3_Small_Weights.IMAGENET1K_V1
     model = models.mobilenet_v3_small(weights=weights)
 
@@ -30,8 +30,11 @@ def get_mobilenet(imagenet_path='/mnt/data/imagenet', batch_size=64):
     val_dataset = datasets.ImageNet(root=imagenet_path,
                                     split='val',
                                     transform=transforms)
+
     val_dataloader = DataLoader(val_dataset,
-                                batch_size=batch_size,
+                                batch_size=kwargs.get('batch_size', 128),
+                                num_workers=kwargs.get('num_workers', 32),
+                                pin_memory=kwargs.get('pin_memory', True),
                                 shuffle=False)
     return model, val_dataset, val_dataloader
 

@@ -81,4 +81,4 @@ def calculate_class_accuracy(model,
             class_accuracy[i] = (correct_per_class[i] /
                                  total_per_class[i]) * 100
 
-    return class_accuracy, total_per_class.int()
+    return class_accuracy.detach().cpu().numpy(), total_per_class.int()
