@@ -118,8 +118,9 @@ class Scope:
 
         for step in range(self.steps):
             self.model.zero_grad()
-
-            y = self.model(stim[step])
+            # get device of the model
+            device = next(self.model.parameters()).device
+            y = self.model(stim[step].to(device))
 
             if self.softmax:
                 y = torch.softmax(y, dim=-1)

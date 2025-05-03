@@ -6,7 +6,25 @@ from torchvision import datasets, models, transforms
 from torch.utils.data import DataLoader
 
 
-def get_alexnet(imagenet_path='/mnt/data/imagenet', batch_size=64):
+def get_resnet(imagenet_path='/mnt/data/imagenet', **kwargs):
+    weights = ResNet18_Weights.IMAGENET1K_V1
+    model = models.resnet18(weights=weights)
+
+    transforms = weights.transforms()
+    val_dataset = datasets.ImageNet(root=imagenet_path,
+                                    split='val',
+                                    transform=transforms)
+
+    val_dataloader = DataLoader(val_dataset,
+                                batch_size=kwargs.get('batch_size', 128),
+                                num_workers=kwargs.get('num_workers', 32),
+                                pin_memory=kwargs.get('pin_memory', True),
+                                shuffle=False)
+
+    return model, val_dataset, val_dataloader
+
+
+def get_alexnet(imagenet_path='/mnt/data/imagenet', **kwargs):
     weights = AlexNet_Weights.IMAGENET1K_V1
     model = models.alexnet(weights=weights)
 
@@ -16,7 +34,9 @@ def get_alexnet(imagenet_path='/mnt/data/imagenet', batch_size=64):
                                     transform=transforms)
 
     val_dataloader = DataLoader(val_dataset,
-                                batch_size=batch_size,
+                                batch_size=kwargs.get('batch_size', 128),
+                                num_workers=kwargs.get('num_workers', 32),
+                                pin_memory=kwargs.get('pin_memory', True),
                                 shuffle=False)
 
     return model, val_dataset, val_dataloader
@@ -35,34 +55,6 @@ def get_mobilenet(imagenet_path='/mnt/data/imagenet', **kwargs):
                                 batch_size=kwargs.get('batch_size', 128),
                                 num_workers=kwargs.get('num_workers', 32),
                                 pin_memory=kwargs.get('pin_memory', True),
-                                shuffle=False)
-    return model, val_dataset, val_dataloader
-
-
-def get_resnet50(imagenet_path='/mnt/data/imagenet', batch_size=64):
-    weights = ResNet50_Weights.IMAGENET1K_V1
-    model = models.resnet50(weights=weights)
-
-    transforms = weights.transforms()
-    val_dataset = datasets.ImageNet(root=imagenet_path,
-                                    split='val',
-                                    transform=transforms)
-    val_dataloader = DataLoader(val_dataset,
-                                batch_size=batch_size,
-                                shuffle=False)
-    return model, val_dataset, val_dataloader
-
-
-def get_resnet18(imagenet_path='/mnt/data/imagenet', batch_size=64):
-    weights = ResNet18_Weights.IMAGENET1K_V1
-    model = models.resnet18(weights=weights)
-
-    transforms = weights.transforms()
-    val_dataset = datasets.ImageNet(root=imagenet_path,
-                                    split='val',
-                                    transform=transforms)
-    val_dataloader = DataLoader(val_dataset,
-                                batch_size=batch_size,
                                 shuffle=False)
     return model, val_dataset, val_dataloader
 
