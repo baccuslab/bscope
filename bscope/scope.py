@@ -276,15 +276,16 @@ class Scope:
                 g = np.array(self.gradients[layer])
                 a = np.array(self.activations[layer])
                 c = np.array(self.contributions[layer])
-
-                if 'ei_split' in self.reduction:
-                    g = ei_split(g)
-                    a = ei_split(a)
-                    c = ei_split(c)
-                if 'spatial_sum' in self.reduction:
-                    g = g.sum((2, 3))
-                    a = a.sum((2, 3))
-                    c = c.sum((2, 3))
+                
+                if self.reduction is not None:
+                    if 'ei_split' in self.reduction:
+                        g = ei_split(g)
+                        a = ei_split(a)
+                        c = ei_split(c)
+                    if 'spatial_sum' in self.reduction:
+                        g = g.sum((2, 3))
+                        a = a.sum((2, 3))
+                        c = c.sum((2, 3))
 
                 self.log_gradients[layer].append(g)
                 self.log_activations[layer].append(a)
