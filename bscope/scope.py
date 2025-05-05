@@ -5,7 +5,32 @@ from IPython import embed
 import torch
 import torch.nn as nn
 
+import torch
 
+import numpy as np
+
+def normalize_batch_across_cyx(array):
+    # array shape: [B, C, Y, X]
+    
+    # Get batch size
+    b_size = array.shape[0]
+    
+    # Reshape to [B, C*Y*X] to compute norm across all C, Y, X dimensions
+    reshaped = array.reshape(b_size, -1)
+    
+    # Compute the norm for each batch item
+    norms = np.linalg.norm(reshaped, axis=1, keepdims=True)
+    
+    # Avoid division by zero
+    norms = np.clip(norms, 1e-8, None)
+    
+    # Normalize each batch item
+    normalized_reshaped = reshaped / norms
+    
+    # Reshape back to original shape
+    normalized = normalized_reshaped.reshape(array.shape)
+    
+    return normalized
 class Scope:
     """
     last_X is the full
@@ -38,6 +63,12 @@ class Scope:
 
     def use_act_grad(self):
         self.contribution_type = 'act_grad'
+    
+    def use_codec(self, version):
+        if version == 'v1':
+            self.contribution_type='codec_v1'
+        elif version == 'v2':
+            self.contribution_type='codec_v2'
 
     def wrt_entropy(self):
         self.contribution_target = 'entropy'
@@ -108,6 +139,13 @@ class Scope:
             stim = input_tensor.unsqueeze(0)
             stim.requires_grad = True
             self.steps = 1
+        elif self.contribution_type == 'codec_v1' or self.contribution_type == 'codec_v2':
+            stim = input_tensor.unsqueeze(0)
+            stim.requires_grad = True
+            self.steps = 1
+
+
+
         else:
             raise ValueError(
                 f"Unknown contribution type: {self.contribution_type}")
@@ -145,8 +183,42 @@ class Scope:
         self.last_gradients = [
             np.array(self.last_gradients[i]) for i in range(self.num_layers)
         ]
+        
+        if self.contribution_type == 'codec_v1':
+            contributions = []
+            for layer in range(self.num_layers):
+                act = self.last_activations[layer][0]
+                grad = self.last_gradients[layer][0]
+                norm_grad = normalize_batch_across_cyx(grad)
+                contributions.append(np.array(act * norm_grad))
+            self.activations = [
+                self.last_activations[layer][0]
+                for layer in range(self.num_layers)
+            ]
+            self.gradients = [
+                self.last_gradients[layer][0]
+                for layer in range(self.num_layers)
+            ]
+        
+        elif self.contribution_type == 'codec_v2':
+            contributions = []
+            for layer in range(self.num_layers):
+                act = self.last_activations[layer][0]
+                grad = self.last_gradients[layer][0]
+                norm_act = normalize_batch_across_cyx(act)
+                norm_grad = normalize_batch_across_cyx(grad)
+                contributions.append(np.array(norm_act* norm_grad))
 
-        if self.contribution_type == 'act_grad':
+            self.activations = [
+                self.last_activations[layer][0]
+                for layer in range(self.num_layers)
+            ]
+            self.gradients = [
+                self.last_gradients[layer][0]
+                for layer in range(self.num_layers)
+            ]
+
+        elif self.contribution_type == 'act_grad':
             contributions = []
             for layer in range(self.num_layers):
                 act = self.last_activations[layer][0]

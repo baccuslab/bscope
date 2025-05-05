@@ -425,3 +425,7 @@ class SynsetAnalyzer:
 
         return mask_array, node_names
 
+if __name__ == "__main__":
+    # Example usage
+    analyzer = SynsetAnalyzer()
+    embed()
