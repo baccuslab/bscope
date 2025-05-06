@@ -7,10 +7,147 @@ import json
 import requests
 
 
+class Semantics:
+
+    def __init__(self):
+        self.load_class_map()
+
+    def load_class_map(self, dir_map_path='/mnt/data/ic/synsets.txt'):
+        """Load synset names into a dictionary"""
+        with open(dir_map_path, "r") as file:
+            dir_map_list = file.read().strip().split("\n")
+
+        dir_map = {}
+        logit_map = {}
+        for index, dir_entry in enumerate(dir_map_list):
+            parts = dir_entry.split(" ")
+            dir_id = parts[0]  # Extract ID (e.g., "n01440764")
+            class_name = " ".join(parts[1:])  # Extract readable name
+
+            logit_map[index] = class_name
+            dir_map[dir_id] = class_name
+
+        self.logit_map = logit_map
+        self.dir_map = dir_map
 
 
+#
+#
+def extract_child(node, mapping):
+    """Recursively extract {id: index} from mobilenet.json"""
+    if "id" in node and "index" in node:
+        mapping[node["id"]] = node["index"]
+    if "children" in node:
+        for child in node["children"]:
+            extract_child(child, mapping)
 
-class SynsetAnalyzer:
+
+def load_hierarchy(json_path='/mnt/data/ic/mobilenet.json'):
+    """Load MobileNet JSON and extract mapping"""
+    with open(json_path, "r") as file:
+        hierarchy = json.load(file)
+
+    hierarchy_children = {}
+    extract_child(hierarchy, hierarchy_children)
+    return hierarchy, hierarchy_children
+
+
+def get_all_hierarchy_names(node):
+    names = set()
+
+    def traverse(node):
+        if 'name' in node:
+            names.add(node['name'])
+        if 'children' in node:
+            for child in node['children']:
+                traverse(child)
+
+    traverse(node)
+    return names
+
+
+#
+def get_all_children_indices(hierarchy, class_label):
+    indices = []
+
+    def search_children(node):
+        # If the current node matches the higher-order label, collect indices from its subtree
+        if node['name'].startswith(class_label):
+            collect_indices(node)
+
+        # If the current node has children, search through them
+        if 'children' in node:
+            for child in node['children']:
+                search_children(child)
+
+    def collect_indices(node):
+        # If the node has an index, add it to the list
+        if 'index' in node:
+            indices.append(node['index'])
+        # If the node has children, continue collecting indices
+        if 'children' in node:
+            for child in node['children']:
+                collect_indices(child)
+
+    search_children(hierarchy)
+    return indices
+
+
+def get_mask_for_semantic(hierarchy, hierarchy_name, targets):
+    """Generate a binary mask for a given semantic hierarchy"""
+    indices = get_all_children_indices(hierarchy, hierarchy_name)
+    indices_set = set(indices)
+    return np.array([t in indices_set for t in targets])
+
+
+def get_masks(targets, savefile='/mnt/data/ic/masks.npz'):
+    # if savefile exists, load it
+    if os.path.exists(savefile):
+        print('Loading masks from file')
+        masks = np.load(savefile, allow_pickle=True)
+        return masks['mask_matrix'], masks['mask_labels']
+    else:
+        print('Computing masks and saving at file {}'.format(savefile))
+
+        hierarchy, _ = load_hierarchy()
+
+        all_names = get_all_hierarchy_names(hierarchy)
+        masks = {}
+        for name in tqdm.tqdm(all_names):
+            masks[name] = get_mask_for_semantic(hierarchy, name, targets)
+
+        mask_matrix = np.stack(list(masks.values()), axis=1)
+        mask_labels = list(masks.keys())
+
+        # Save the masks to a file
+        np.savez(savefile, mask_matrix=mask_matrix, mask_labels=mask_labels)
+        return mask_matrix, mask_labels
+
+
+def mtx_corr(A, B):
+    """
+    Fast correlation between two matrices.
+    Shape[0] must be the same for each
+    For example, N x M and N x K matrices
+    where N is the number of samples, M is the number of features in A,
+    and K is the number of features in B.
+    """
+    A = A.T
+    B = B.T
+    # Normalize A and B along the feature axis (columns)
+    A_mean = A.mean(axis=1, keepdims=True)
+    A_std = A.std(axis=1, keepdims=True)
+    A_norm = (A - A_mean) / A_std
+
+    B_mean = B.mean(axis=1, keepdims=True)
+    B_std = B.std(axis=1, keepdims=True)
+    B_norm = (B - B_mean) / B_std
+
+    correlation_matrix = A_norm @ B_norm.T / A.shape[1]
+    return correlation_matrix
+
+
+class SemanticAnalyzer:
 
     def __init__(self, json_file_path='/mnt/data/ic/node_data_mapping.json'):
         self.data = self.load_data(json_file_path)
@@ -20,7 +157,7 @@ class SynsetAnalyzer:
         with open(path, 'r') as f:
             return json.load(f)
 
-    def get_indices_for_name(self, name, partial_match=False):
+    def indices_helper(self, name, partial_match=False):
         """
         Retrieve synsets by name or partial match, including all indices from descendants.
         """
@@ -77,13 +214,13 @@ class SynsetAnalyzer:
         # Return the results
         return results
 
-    def print_hierarchy_summary(self, name, partial_match=False):
+    def get_indices(self, name, partial_match=False):
         """
         Print matching synsets and also show all indices from all descendants.
         Returns a list of all unique indices from all descendants.
         """
         # First get direct matches
-        matches = self.get_indices_for_name(name, partial_match)
+        matches = self.indices_helper(name, partial_match)
 
         if not matches:
             print(f"No synsets found with name '{name}'.")
@@ -91,21 +228,6 @@ class SynsetAnalyzer:
 
         print(f"Found {len(matches)} matching term for '{name}':")
 
-        # Print info for direct matches
-        for synset_name, info in matches.items():
-            print(f"\nSynset: {synset_name}")
-            print(f"Definition: {info['definition']}")
-            print(f"Path: {info['path']}")
-            print(f"Number of indices: {len(info['indices'])}")
-            if info['indices']:
-                preview = ', '.join(map(str, info['indices'][:10]))
-                print(f"Indices: {preview}")
-                if len(info['indices']) > 10:
-                    print(f"...and {len(info['indices']) - 10} more")
-            else:
-                print("No indices associated with this synset.")
-
-        # Now get ALL descendants and their indices
         all_descendants = self.get_descendant_nodes(name)
 
         # Collect all indices from all descendants
@@ -117,21 +239,13 @@ class SynsetAnalyzer:
         # Sort the indices
         all_indices = sorted(list(all_indices))
 
-        # Print info about all descendants and their indices
-        print(f"\nTotal descendants : {len(all_descendants)}")
-        print(f"Total unique indices from all descendants: {len(all_indices)}")
-        if all_indices:
-            preview = ', '.join(map(str, all_indices[:20]))
-            print(f"All indices: {preview}")
-            if len(all_indices) > 20:
-                print(f"...and {len(all_indices) - 20} more")
 
         # Return all unique indices for use in mask function
         return all_indices
 
     def get_parent_nodes(self, name, partial_match=False):
         """Find parent nodes for the given name."""
-        matches = self.get_indices_for_name(name, partial_match)
+        matches = self.indices_helper(name, partial_match)
         if not matches:
             print(f"No synsets found with name '{name}'.")
             return {}
@@ -146,20 +260,6 @@ class SynsetAnalyzer:
                     if other_info['path'] == current_path:
                         parent_nodes[other_name] = other_info
         return parent_nodes
-
-    def print_parent_nodes(self, name, partial_match=False):
-        """Print parent nodes for the given name."""
-        matches = self.get_indices_for_name(name, partial_match)
-        for synset in matches:
-            print(f"  {synset}")
-        print(f"\nSearching for nodes that have '{name}' in their ancestry:")
-        parents = self.get_parent_nodes(name, partial_match)
-        if not parents:
-            print(f"No parent nodes found for synsets with name '{name}'.")
-        else:
-            print(f"\nFound {len(parents)} parent nodes:")
-            for parent_name in parents:
-                print(f"  {parent_name}")
 
     def get_descendant_nodes(self, term):
         """
@@ -200,16 +300,6 @@ class SynsetAnalyzer:
 
         return descendant_nodes
 
-    def print_descendant_nodes(self, term):
-        """Print all nodes that have the term in their ancestry."""
-        print(f"\nSearching for nodes that have '{term}' in their ancestry:")
-        descendants = self.get_descendant_nodes(term)
-        if not descendants:
-            print(f"No nodes found with '{term}' in their ancestry.")
-        else:
-            print(f"\nFound {len(descendants)} descendant nodes:")
-            for synset_name in descendants:
-                print(f"  {synset_name}")
 
     def get_all_indices_for_search(self, term):
         """
@@ -235,25 +325,7 @@ class SynsetAnalyzer:
         all_indices = set(self.get_all_indices_for_search(search_term))
         return np.array([idx in all_indices for idx in target_indices])
 
-    def print_all_indices_for_term(self, term):
-        """
-        Print all indices associated with a term and its descendants.
-        """
-        indices = self.get_all_indices_for_search(term)
-        descendants = self.get_descendant_nodes(term)
-
-        print(f"Results for '{term}':")
-        print(f"- Descendants: {len(descendants)} synsets")
-        print(f"- Total indices found: {len(indices)}")
-        print(f"- Indices: {indices}")
-
-        # Print each descendant and its indices
-        for synset_name, info in descendants.items():
-            indices = info.get('indices', [])
-            if indices:
-                print(f"\n{synset_name}: {indices}")
-
-    def get_masks_for_all_nodes(self, target_indices):
+    def all_semantic_masks(self, target_indices):
         """
         Create boolean masks for all nodes using the create_mask method.
         
@@ -287,8 +359,50 @@ class SynsetAnalyzer:
         mask_array = np.array(masks)
 
         return mask_array, node_names
-
-if __name__ == "__main__":
-    # Example usage
-    analyzer = SynsetAnalyzer()
-    embed()
+    def all_imagenet_masks(self, target_indices):
+        """
+        Create masks for the 1000 ImageNet classes, using the most specific class name for each index.
+        
+        Parameters:
+        - target_indices: A list of indices to check
+        
+        Returns:
+        - mask_array: A numpy array of shape (1000, len(target_indices))
+        - imagenet_class_names: List of the 1000 specific class names
+        """
+        import numpy as np
+        
+        # For each index, find the most specific class (i.e., the class with the longest path)
+        index_to_specific_class = {}
+        
+        for synset_name, data in self.data.items():
+            path_length = len(data['path'].split('.'))
+            
+            for idx in data['indices']:
+                if 0 <= idx < 1000:
+                    # If we haven't seen this index before, or if this class is more specific
+                    if idx not in index_to_specific_class or \
+                    path_length > len(self.data[index_to_specific_class[idx]]['path'].split('.')):
+                        index_to_specific_class[idx] = synset_name
+        
+        # Create a list of class names, one for each index
+        class_names = []
+        for idx in range(1000):
+            if idx in index_to_specific_class:
+                class_names.append(index_to_specific_class[idx])
+            else:
+                print(f"Warning: No class found for index {idx}")
+                # Use a placeholder if no class is found
+                class_names.append(f"unknown_class_{idx}")
+        
+        # Create masks for each index
+        masks = []
+        for idx in range(1000):
+            # Simple mask where target index equals current index
+            mask = np.array([i == idx for i in target_indices])
+            masks.append(mask)
+        
+        # Convert list of masks to numpy array
+        mask_array = np.array(masks)
+        
+        return mask_array, class_names
