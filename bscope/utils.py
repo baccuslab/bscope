@@ -1,5 +1,27 @@
 import numpy as np
 
+def mtx_corr(A, B):
+    """
+    Fast correlation between two matrices.
+    Shape[0] must be the same for each
+    For example, N x M and N x K matrices
+    where N is the number of samples, M is the number of features in A,
+    and K is the number of features in B.
+    """
+    A = A.T
+    B = B.T
+    # Normalize A and B along the feature axis (columns)
+    A_mean = A.mean(axis=1, keepdims=True)
+    A_std = A.std(axis=1, keepdims=True)
+    A_norm = (A - A_mean) / A_std
+
+    B_mean = B.mean(axis=1, keepdims=True)
+    B_std = B.std(axis=1, keepdims=True)
+    B_norm = (B - B_mean) / B_std
+
+    correlation_matrix = A_norm @ B_norm.T / A.shape[1]
+    return correlation_matrix
+
 
 def ei_split(matrix):
     """
