@@ -7,9 +7,8 @@ from overcomplete.sae import BatchTopKSAE, train_sae
 
 def load_sae(path, data, device):
 
-    sae = torch.load(path, weights_only=False)      
+    sae = torch.load(path, weights_only=False, map_location=device) 
 
-    sae = sae.to(device)    
     sae = sae.eval()
 
 
