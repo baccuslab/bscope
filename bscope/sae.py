@@ -24,7 +24,5 @@ def load_sae(path, data, device):
 
     loadings = loadings[:, ~dead]
     dictionary = sae.get_dictionary().detach().cpu().numpy()[~dead, :]
-#
-
 
     return loadings, dictionary, dead   
