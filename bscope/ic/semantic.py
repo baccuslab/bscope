@@ -478,7 +478,7 @@ class ModeAnalyzer:
                 threshold = mean + n * std  # using n_channels as the number of std devs
                 channels = np.where(mode > threshold)[0]
             else:
-                raise ValueError(f"Unknown method: {method}. Use 'argsort' or 'std'.")
+                raise ValueError(f"Unknown method: {method}. Use 'argsort' or 'std' ")
                 
             important_channels.extend(channels)
 
