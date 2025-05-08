@@ -5,6 +5,7 @@ import tqdm
 import numpy as np
 import json
 import requests
+import bscope
 
 
 class SemanticAnalyzer:
@@ -266,3 +267,220 @@ class SemanticAnalyzer:
         mask_array = np.array(masks)
         
         return mask_array, class_names
+    def get_concepts_from_path(self, concept):
+        """
+        Get all concept names from paths containing the specified concept,
+        preserving the original order they appear in each path.
+        
+        Parameters:
+        - concept: String representing the starting concept to search for
+        
+        Returns:
+        - List of concept names in the order they appear in paths
+        """
+        # Get all descendant nodes for the concept
+        descendants = self.get_descendant_nodes(concept)
+        
+        # Track all unique paths to handle duplicates while preserving order
+        all_paths = set()
+        for info in descendants.values():
+            all_paths.add(info['path'])
+        
+        # Process each unique path and extract names in order
+        ordered_names = []
+        seen_names = set()  # To track duplicates
+        
+        for path in all_paths:
+            # Split the path into components
+            components = path.split(".")
+            
+            # Process components in groups of 3 (name, pos, number)
+            i = 0
+            while i < len(components):
+                # Add the name component if not already seen
+                if i < len(components) and components[i] not in seen_names:
+                    ordered_names.append(components[i])
+                    seen_names.add(components[i])
+                
+                # Skip to the next name
+                if i + 2 < len(components) and components[i+1] == 'n':
+                    i += 3  # Standard case: skip name, 'n', and number
+                else:
+                    i += 1  # Fallback: move forward one component
+        
+        return ordered_names
+    
+import numpy as np
+import matplotlib.pyplot as plt
+import bscope
+import bscope.ic as bic
+from typing import List, Tuple, Dict, Union, Optional
+
+
+class ModeAnalyzer:
+    """
+    A class for analyzing contributions using correlation matrices
+    and semantic masks.
+    """
+    
+    def __init__(
+        self, 
+        loadings, 
+        dictionary,
+        mask_matrix ,
+        mask_labels,
+        contributions,
+        dead_features
+    ):
+        """
+        Initialize the ConceptAnalyzer with model data.
+        
+        Args:
+            loadings: The loadings matrix from SAE (samples × features)
+            dictionary: The dictionary/atoms matrix from SAE (features × channels)
+            mask_matrix: Semantic mask matrix (concepts × samples)
+            mask_labels: Labels for each concept in mask_matrix
+            contributions: Contribution matrix (samples × channels)
+            dead_features: Optional array indicating dead features to exclude
+        """
+        self.loadings = loadings
+        self.dictionary = dictionary
+        self.mask_matrix = mask_matrix  # Ensure mask_matrix is (samples × concepts)
+        self.mask_labels = mask_labels
+        self.contributions = contributions
+        self.dead_features = dead_features
+        
+        # Calculate correlation matrix between loadings and mask matrix
+        self.corr_mtx = np.abs(bscope.mtx_corr(self.loadings, self.mask_matrix))
+        self.corr_mtx[np.isnan(self.corr_mtx)] = 0  # Replace NaNs with zeros
+    
+    def find_concept_indices(self, concept_name: str) -> List[int]:
+        """
+        Find the indices of concepts that match the given name.
+        
+        Args:
+            concept_name: The name of the concept to find
+            
+        Returns:
+            List of matching concept indices
+        """
+        matching_indices = []
+        for i, label in enumerate(self.mask_labels):
+            if label.startswith(concept_name):
+                matching_indices.append(i)
+        
+        return matching_indices
+    
+    def get_concept_info(self, concept_name: str, select_first: bool = True) -> Tuple[int, str]:
+        """
+        Get information about a concept.
+        
+        Args:
+            concept_name: The name of the concept to find
+            select_first: If True, automatically select the first match if multiple found
+            
+        Returns:
+            Tuple of (concept_index, concept_label)
+            
+        Raises:
+            ValueError: If no matching concepts found or multiple matches found and select_first is False
+        """
+        matching_indices = self.find_concept_indices(concept_name)
+        
+        if not matching_indices:
+            raise ValueError(f"No concepts found with name '{concept_name}'")
+        
+        if len(matching_indices) > 1:
+            print(f"Found multiple matching concepts:")
+            for idx in matching_indices:
+                print(f"  {idx}: {self.mask_labels[idx]}")
+            
+            if select_first:
+                concept_idx = matching_indices[0]
+                print(f"Using the first match: {self.mask_labels[concept_idx]}")
+            else:
+                raise ValueError(f"Multiple concepts found with name '{concept_name}'. Set select_first=True to use the first match.")
+        else:
+            concept_idx = matching_indices[0]
+        
+        return concept_idx, self.mask_labels[concept_idx]
+    
+    def get_concept_sample_indices(self, concept_idx: int) -> np.ndarray:
+        """
+        Get the sample indices for a specific concept.
+        
+        Args:
+            concept_idx: The index of the concept
+            
+        Returns:
+            Array of sample indices where the concept is present
+        """
+        return np.where(self.mask_matrix[:, concept_idx] == 1)[0]
+    
+    def get_average_contribution(self, concept_idx: int) -> np.ndarray:
+        """
+        Get the average contribution for a specific concept.
+        
+        Args:
+            concept_idx: The index of the concept
+            
+        Returns:
+            Average contribution vector across all samples for this concept
+        """
+        concept_indices = self.get_concept_sample_indices(concept_idx)
+        return np.mean(self.contributions[concept_indices], axis=0)
+    
+    def get_top_modes(self, concept_idx: int, n_modes: int = 5) -> np.ndarray:
+        """
+        Get the top modes (features) that are most correlated with a concept.
+        
+        Args:
+            concept_idx: The index of the concept
+            n_modes: Number of top modes to return
+            
+        Returns:
+            Array of indices of the top n_modes that correlate with the concept
+        """
+        # Sort modes by correlation with the concept
+        concept_modes = np.argsort(self.corr_mtx[:, concept_idx])
+        # Get top n_modes (in descending order)
+        top_modes = concept_modes[-n_modes:][::-1]
+        return top_modes
+    
+    def get_channels(self, mode_indices: np.ndarray, n: int = 10, concept_idx=None,
+                              method: str = 'argsort') -> List[np.ndarray]:
+        """
+        Get the important channels for specified modes.
+        
+        Args:
+            mode_indices: Array of mode indices to analyze
+            n_channels: Number of top channels per mode to return
+            method: Method to select channels ('argsort' or 'std')
+            
+        Returns:
+            List of important channel indices across all modes
+        """
+        if method =='avg_contribution':
+            avg_contribution = self.get_average_contribution(concept_idx)
+            top_channels = np.argsort(avg_contribution)[-n:][::-1]
+            return list(top_channels)
+        important_channels = []
+        for mode_idx in mode_indices:
+            mode = self.dictionary[mode_idx]
+            
+            if method == 'argsort':
+                # Get top n_channels with highest values
+                channels = np.argsort(mode)[-n:][::-1]
+            elif method == 'std':
+                # Get channels that are x standard deviations above the mean
+                mean = np.mean(mode)
+                std = np.std(mode)
+                threshold = mean + n * std  # using n_channels as the number of std devs
+                channels = np.where(mode > threshold)[0]
+            else:
+                raise ValueError(f"Unknown method: {method}. Use 'argsort' or 'std'.")
+                
+            important_channels.extend(channels)
+
+            
+        return list(important_channels)
