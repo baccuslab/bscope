@@ -429,7 +429,33 @@ class ModeAnalyzer:
         """
         concept_indices = self.get_concept_sample_indices(concept_idx)
         return np.mean(self.contributions[concept_indices], axis=0)
-    
+
+    def get_average_contribution_channels(self, n: int = 10, concept_idx: int = None, method: str = 'argsort') -> np.ndarray:
+        """
+        Get important channels based on the average contribution of a specific concept.
+
+        Args:
+            n: Number of top channels to return (or number of std deviations if method='std')
+            concept_idx: The index of the concept
+            method: Method to select channels ('argsort' or 'std')
+            
+        Returns:
+            Array of important channel indices
+        """
+        avg_contribution = self.get_average_contribution(concept_idx)
+
+        if method == 'argsort':
+            top_channels = np.argsort(avg_contribution)[-n:][::-1]
+        elif method == 'std':
+            mean = np.mean(avg_contribution)
+            std = np.std(avg_contribution)
+            threshold = mean + n * std
+            top_channels = np.where(avg_contribution > threshold)[0]
+        else:
+            raise ValueError(f"Unknown method: {method}. Use 'argsort' or 'std'.")
+
+        return list(top_channels)
+
     def get_top_modes(self, concept_idx: int, n_modes: int = 5) -> np.ndarray:
         """
         Get the top modes (features) that are most correlated with a concept.
@@ -460,10 +486,6 @@ class ModeAnalyzer:
         Returns:
             List of important channel indices across all modes
         """
-        if method =='avg_contribution':
-            avg_contribution = self.get_average_contribution(concept_idx)
-            top_channels = np.argsort(avg_contribution)[-n:][::-1]
-            return list(top_channels)
         important_channels = []
         for mode_idx in mode_indices:
             mode = self.dictionary[mode_idx]
