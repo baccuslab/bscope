@@ -1,7 +1,7 @@
 from torchvision import models, datasets
 import matplotlib.pyplot as plt
 from torchvision.models.alexnet import AlexNet_Weights
-from torchvision.models.mobilenet import MobileNet_V3_Small_Weights
+from torchvision.models.mobilenet import MobileNet_V3_Small_Weights, MobileNet_V3_Large_Weights
 from torchvision.models.resnet import ResNet50_Weights, ResNet18_Weights, ResNet101_Weights
 from torchvision import datasets, models, transforms
 from torch.utils.data import DataLoader
@@ -25,9 +25,13 @@ def get_model(which_model, return_layers=False, imagenet_path='/mnt/data/imagene
         weights = AlexNet_Weights.IMAGENET1K_V1
         model = models.alexnet(weights=weights)
 
-    elif which_model == 'mobilenet':
+    elif which_model == 'mobilenet_small':
         weights = MobileNet_V3_Small_Weights.IMAGENET1K_V1
         model = models.mobilenet_v3_small(weights=weights)
+
+    elif which_model == 'mobilenet_large':
+        weights = MobileNet_V3_Large_Weights.IMAGENET1K_V1
+        model = models.mobilenet_v3_large(weights=weights)
     
     model.to(device)
     model.eval()
@@ -47,11 +51,16 @@ def get_model(which_model, return_layers=False, imagenet_path='/mnt/data/imagene
         if 'resnet' in which_model:
             model_layers = []
             for li, layer in enumerate([model.layer1, model.layer2, model.layer3, model.layer4]):
-                if li < 3:
-                    model_layers.append(layer[-1])
-                else:
-                    for block in layer:
-                        model_layers.append(block)
+                for block in layer:
+                    model_layers.append(block)
+
+            print('Found {} layers'.format(len(model_layers)))
+            
+            return model, val_dataset, val_dataloader, model_layers
+        elif 'mobilenet' in which_model:
+            model_layers = []
+            for block in model.features:
+                model_layers.append(block)
 
             print('Found {} layers'.format(len(model_layers)))
             

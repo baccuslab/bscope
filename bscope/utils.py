@@ -88,3 +88,8 @@ def compute_participation_ratio(matrix):
 
     return participation_ratios
 
+def img_norm(image):
+    image = image - np.min(image)
+    image = image / np.max(image)
+    return image
+
