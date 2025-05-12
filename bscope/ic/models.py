@@ -1,4 +1,5 @@
 from torchvision import models, datasets
+import matplotlib.pyplot as plt
 from torchvision.models.alexnet import AlexNet_Weights
 from torchvision.models.mobilenet import MobileNet_V3_Small_Weights
 from torchvision.models.resnet import ResNet50_Weights, ResNet18_Weights, ResNet101_Weights
@@ -29,6 +30,7 @@ def get_model(which_model, return_layers=False, imagenet_path='/mnt/data/imagene
         model = models.mobilenet_v3_small(weights=weights)
     
     model.to(device)
+    model.eval()
 
     transforms = weights.transforms()
     val_dataset = datasets.ImageNet(root=imagenet_path,
@@ -44,10 +46,15 @@ def get_model(which_model, return_layers=False, imagenet_path='/mnt/data/imagene
     else:
         if 'resnet' in which_model:
             model_layers = []
-            for layer in [model.layer1, model.layer2, model.layer3, model.layer4]:
-                for block in layer:
-                    model_layers.append(block.bn3)
+            for li, layer in enumerate([model.layer1, model.layer2, model.layer3, model.layer4]):
+                if li < 3:
+                    model_layers.append(layer[-1])
+                else:
+                    for block in layer:
+                        model_layers.append(block)
 
             print('Found {} layers'.format(len(model_layers)))
             
             return model, val_dataset, val_dataloader, model_layers
+
+

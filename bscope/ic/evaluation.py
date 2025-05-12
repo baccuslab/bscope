@@ -5,7 +5,6 @@ import torch
 import numpy as np
 
 
-
 def calculate_class_accuracy(model,
                              val_loader,
                              num_classes=1000,
