@@ -9,7 +9,7 @@ class Inspector:
     A class that logs activations and gradients for multiple layers in a PyTorch model.
     """
 
-    def __init__(self, layers_list):
+    def __init__(self, layers_list, to_numpy=True):
         """
         Initialize the inspector with a list of layers to track.
         
@@ -20,6 +20,7 @@ class Inspector:
         self.activations = [[] for i in range(len(layers_list))]
         self.gradients = [[] for i in range(len(layers_list))]
         self.handles = []
+        self.to_numpy = to_numpy
 
         # Register hooks for each layer
         for idx, layer in enumerate(self.layers):
@@ -38,14 +39,23 @@ class Inspector:
 
     def _store_activation(self, idx, output):
         """Store the activation of a specific layer."""
-        if isinstance(output, tuple):
-            self.activations[idx] = output[0].cpu().detach().numpy()
+        if self.to_numpy:
+            if isinstance(output, tuple):
+                self.activations[idx] = output[0].cpu().detach().numpy()
+            else:
+                self.activations[idx] = output.cpu().detach().numpy()
         else:
-            self.activations[idx] = output.cpu().detach().numpy()
+            if isinstance(output, tuple):
+                self.activations[idx] = output[0]
+            else:
+                self.activations[idx] = output
 
     def _store_gradient(self, idx, grad):
         """Store the gradient of a specific layer."""
-        self.gradients[idx] = grad.cpu().detach().numpy()
+        if self.to_numpy:
+            self.gradients[idx] = grad.cpu().detach().numpy()
+        else:
+            self.gradients[idx] = grad
 
     def get_activation(self, idx):
         """

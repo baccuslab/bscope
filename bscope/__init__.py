@@ -3,3 +3,4 @@ from .disruptor import *
 from .utils import *
 from .sae import *
 from .inspector import * 
+from .jacobian import *

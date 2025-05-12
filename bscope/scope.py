@@ -31,6 +31,7 @@ def normalize_batch_across_cyx(array):
     normalized = normalized_reshaped.reshape(array.shape)
     
     return normalized
+
 class Scope:
     """
     last_X is the full
@@ -69,6 +70,9 @@ class Scope:
             self.contribution_type='codec_v1'
         elif version == 'v2':
             self.contribution_type='codec_v2'
+
+    def use_jacobians(self):
+        self.contribution_type = 'jacobians'
 
     def wrt_entropy(self):
         self.contribution_target = 'entropy'
@@ -135,16 +139,10 @@ class Scope:
             stim = interpolate_stim(input_tensor, self.steps)
         elif self.contribution_type == 'smooth_grad':
             stim = corrupt_stim(input_tensor, self.sigma, self.steps)
-        elif self.contribution_type == 'act_grad':
+        elif self.contribution_type == 'codec_v1' or self.contribution_type == 'codec_v2' or self.contribution_type == 'jacobians' or self.contribution_type == 'act_grad':
             stim = input_tensor.unsqueeze(0)
             stim.requires_grad = True
             self.steps = 1
-        elif self.contribution_type == 'codec_v1' or self.contribution_type == 'codec_v2':
-            stim = input_tensor.unsqueeze(0)
-            stim.requires_grad = True
-            self.steps = 1
-
-
 
         else:
             raise ValueError(
@@ -268,6 +266,10 @@ class Scope:
                     np.mean(np.array(self.last_gradients[layer]), axis=0)
                     for layer in range(self.num_layers)
                 ]
+    
+        else:
+            raise ValueError(
+                f"Unknown contribution type: {self.contribution_type}")
 
         self.contributions = contributions
 
