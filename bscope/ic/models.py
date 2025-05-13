@@ -1,4 +1,5 @@
 from torchvision import models, datasets
+import numpy as np
 import matplotlib.pyplot as plt
 from torchvision.models.alexnet import AlexNet_Weights
 from torchvision.models.mobilenet import MobileNet_V3_Small_Weights, MobileNet_V3_Large_Weights
@@ -7,7 +8,7 @@ from torchvision import datasets, models, transforms
 from torch.utils.data import DataLoader
 from IPython import embed
 
-def get_model(which_model, return_layers=False, imagenet_path='/mnt/data/imagenet', device='cuda',**kwargs):
+def get_model(which_model, return_layers=False, imagenet_path='/mnt/data/imagenet', num_permuted_subsamples=None, device='cuda',**kwargs):
 
     if which_model == 'resnet50':
         weights = ResNet50_Weights.IMAGENET1K_V1
@@ -40,6 +41,18 @@ def get_model(which_model, return_layers=False, imagenet_path='/mnt/data/imagene
     val_dataset = datasets.ImageNet(root=imagenet_path,
                                     split='val',
                                     transform=transforms)
+    if num_permuted_subsamples is not None:
+        print('Subsampling...')
+        idxs = []
+        for ci in range(1000):
+            sub_idxs = np.random.randint(ci*50, (ci+1)*50, num_permuted_subsamples)
+            idxs.extend(sub_idxs)
+
+        dataset = [val_dataset[i] for i in idxs]
+        print('Loaded {} samples using random subsampling of {} per class'.format(len(dataset), num_permuted_subsamples))
+        val_dataset = dataset
+
+
     val_dataloader = DataLoader(val_dataset,
                                 batch_size=kwargs.get('batch_size', 128),
                                 num_workers=kwargs.get('num_workers', 32),
@@ -81,3 +94,5 @@ def get_rgb_dataset(imagenet_path='/mnt/data/imagenet', batch_size=64):
                                 shuffle=False)
 
     return val_dataset
+
+get_model('mobilenet_small', num_permuted_subsamples=5)
