@@ -92,4 +92,82 @@ def img_norm(image):
     image = image - np.min(image)
     image = image / np.max(image)
     return image
+import numpy as np
+from scipy import stats
+
+
+def normalized_mean_square_error(original, reconstruction):
+    """
+    Compute the Normalized Mean Square Error between original signal and reconstruction.
+    
+    Parameters:
+    -----------
+    original : numpy.ndarray
+        Original signal of shape (num_samples, feature_dim)
+    reconstruction : numpy.ndarray
+        Reconstructed signal of shape (num_samples, feature_dim)
+        
+    Returns:
+    --------
+    float
+        The normalized mean square error
+    """
+    if original.shape != reconstruction.shape:
+        raise ValueError("Original and reconstruction must have the same shape")
+    
+    # Calculate mean square error
+    mse = np.mean(np.square(original - reconstruction))
+    
+    # Normalize by the power of the original signal
+    original_power = np.mean(np.square(original))
+    
+    # Avoid division by zero
+    if original_power == 0:
+        return float('inf')
+    
+    nmse = mse / original_power
+    
+    return nmse
+
+
+def cross_entropy_degradation(original, reconstruction, epsilon=1e-10):
+    """
+    Compute the Cross-Entropy Degradation between original signal and reconstruction.
+    This function assumes the signals represent probability distributions or can be 
+    normalized to become distributions.
+    
+    Parameters:
+    -----------
+    original : numpy.ndarray
+        Original signal of shape (num_samples, feature_dim)
+    reconstruction : numpy.ndarray
+        Reconstructed signal of shape (num_samples, feature_dim)
+    epsilon : float
+        Small constant to avoid numerical issues with log(0)
+        
+    Returns:
+    --------
+    float
+        The cross-entropy degradation
+    """
+    if original.shape != reconstruction.shape:
+        raise ValueError("Original and reconstruction must have the same shape")
+    
+    # Ensure the signals are treated as probability distributions
+    # by normalizing along the feature dimension
+    orig_norm = original / (np.sum(original, axis=1, keepdims=True) + epsilon)
+    recon_norm = reconstruction / (np.sum(reconstruction, axis=1, keepdims=True) + epsilon)
+    
+    # Calculate cross-entropy
+    cross_entropy = -np.sum(orig_norm * np.log(recon_norm + epsilon)) / original.shape[0]
+    
+    # Calculate entropy of original signal
+    entropy_orig = -np.sum(orig_norm * np.log(orig_norm + epsilon)) / original.shape[0]
+    
+    # Cross-entropy degradation: difference between cross-entropy and entropy
+    # Higher values indicate worse reconstruction
+    degradation = cross_entropy - entropy_orig
+    
+    return degradation
+
 

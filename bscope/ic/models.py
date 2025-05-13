@@ -43,7 +43,7 @@ def get_model(which_model, return_layers=False, imagenet_path='/mnt/data/imagene
     val_dataloader = DataLoader(val_dataset,
                                 batch_size=kwargs.get('batch_size', 128),
                                 num_workers=kwargs.get('num_workers', 32),
-                                pin_memory=kwargs.get('pin_memory', True),
+                                pin_memory=kwargs.get('pin_memory', False),
                                 shuffle=(kwargs.get('shuffle', False)))
     if return_layers is False:
         return model, val_dataset, val_dataloader
@@ -66,4 +66,18 @@ def get_model(which_model, return_layers=False, imagenet_path='/mnt/data/imagene
             
             return model, val_dataset, val_dataloader, model_layers
 
+def get_rgb_dataset(imagenet_path='/mnt/data/imagenet', batch_size=64):
+    transform = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+    ])
 
+    val_dataset = datasets.ImageNet(root=imagenet_path,
+                                    split='val',
+                                    transform=transform)
+
+    val_dataloader = DataLoader(val_dataset,
+                                batch_size=batch_size,
+                                shuffle=False)
+
+    return val_dataset
