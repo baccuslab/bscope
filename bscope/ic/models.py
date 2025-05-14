@@ -95,4 +95,3 @@ def get_rgb_dataset(imagenet_path='/mnt/data/imagenet', batch_size=64):
 
     return val_dataset
 
-get_model('mobilenet_small', num_permuted_subsamples=5)

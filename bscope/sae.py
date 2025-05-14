@@ -9,7 +9,7 @@ def load_sae(path, data, device):
 
     sae = torch.load(path, weights_only=False, map_location=device) 
 
-    # sae = sae.eval()
+    sae = sae.eval()
 #
     with torch.no_grad():
         pre_loadings, loadings = sae.encode(
