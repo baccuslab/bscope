@@ -11,11 +11,8 @@ def load_sae(path, data, device, eval=True):
     if eval:
         sae = sae.eval()
 
-<<<<<<< HEAD
     sae = sae.eval()
 #
-=======
->>>>>>> e17c2e6 (new bscope)
     with torch.no_grad():
         pre_loadings, loadings = sae.encode(
             torch.from_numpy(data).float().to(device))
