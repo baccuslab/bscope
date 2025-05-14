@@ -5,13 +5,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 from overcomplete.sae import BatchTopKSAE, train_sae
 
-def load_sae(path, data, device, eval=True):
+def load_sae(path, data, device, eval_mode=True):
 
     sae = torch.load(path, weights_only=False, map_location=device) 
-    if eval:
+    if eval_mode:
         sae = sae.eval()
-
-    sae = sae.eval()
+    else:
+        sae = sae.train()
 #
     with torch.no_grad():
         pre_loadings, loadings = sae.encode(
