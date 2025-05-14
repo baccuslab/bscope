@@ -472,15 +472,15 @@ class ModeAnalyzer:
         # Get top n_modes (in descending order)
         top_modes = concept_modes[-n_modes:][::-1]
         return top_modes
-    
     def get_channels(self, mode_indices: np.ndarray, n: int = 10, concept_idx=None,
-                              method: str = 'argsort') -> List[np.ndarray]:
+                        method: str = 'argsort') -> List[np.ndarray]:
         """
         Get the important channels for specified modes.
         
         Args:
             mode_indices: Array of mode indices to analyze
-            n_channels: Number of top channels per mode to return
+            n: Number of top channels per mode to return. If None, returns all channels ranked by importance
+            concept_idx: Optional concept index (not used in this implementation)
             method: Method to select channels ('argsort' or 'std')
             
         Returns:
@@ -491,18 +491,27 @@ class ModeAnalyzer:
             mode = self.dictionary[mode_idx]
             
             if method == 'argsort':
-                # Get top n_channels with highest values
-                channels = np.argsort(mode)[-n:][::-1]
+                if n is None:
+                    # Return all channels sorted by importance (highest to lowest)
+                    channels = np.argsort(mode)[::-1]  # Full sorted array in descending order
+                else:
+                    # Get top n channels with highest values
+                    channels = np.argsort(mode)[-n:][::-1]
             elif method == 'std':
-                # Get channels that are x standard deviations above the mean
-                mean = np.mean(mode)
-                std = np.std(mode)
-                threshold = mean + n * std  # using n_channels as the number of std devs
-                channels = np.where(mode > threshold)[0]
+                if n is None:
+                    # For std method with n=None, sort by deviation from mean (highest to lowest)
+                    mean = np.mean(mode)
+                    deviations = (mode - mean) / np.std(mode)
+                    channels = np.argsort(deviations)[::-1]  # Full sorted array in descending order
+                else:
+                    # Get channels that are x standard deviations above the mean
+                    mean = np.mean(mode)
+                    std = np.std(mode)
+                    threshold = mean + n * std  # using n as the number of std devs
+                    channels = np.where(mode > threshold)[0]
             else:
                 raise ValueError(f"Unknown method: {method}. Use 'argsort' or 'std' ")
                 
             important_channels.extend(channels)
-
             
         return list(important_channels)
