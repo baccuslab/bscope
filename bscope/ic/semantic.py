@@ -6,7 +6,156 @@ import numpy as np
 import json
 import requests
 import bscope
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy import signal
 
+def select_significant_indices(vector, method='threshold', param=0.8, min_indices=1, max_indices=None):
+    """
+    Select indices that contribute most to the overall sum of the vector.
+    
+    Parameters:
+    -----------
+    vector : array-like
+        Input vector of values
+    method : str, optional (default='threshold')
+        Method to use for selecting indices:
+        - 'threshold': Select indices that contribute to param (e.g. 0.8) of the total sum
+        - 'percentile': Select indices above the param (e.g. 90th) percentile
+        - 'top_n': Select the top param (e.g. 10) indices by value
+        - 'kmeans': Use k-means clustering to separate significant from non-significant values
+        - 'otsu': Use Otsu's thresholding method (common in image processing)
+    param : float or int, optional
+        Parameter specific to the chosen method
+    min_indices : int, optional (default=1)
+        Minimum number of indices to return
+    max_indices : int, optional (default=None)
+        Maximum number of indices to return
+        
+    Returns:
+    --------
+    significant_indices : numpy.ndarray
+        Array of indices that contribute most to the total sum
+    """
+    vector = np.asarray(vector)
+    n = len(vector)
+    
+    if max_indices is None:
+        max_indices = n
+    
+    # Handle edge cases
+    if n == 0:
+        return np.array([], dtype=int)
+    
+    if method == 'threshold':
+        # Sort indices by their values in descending order
+        sorted_indices = np.argsort(-vector)
+        cumsum = np.cumsum(vector[sorted_indices])
+        total_sum = cumsum[-1]
+        
+        # Find how many indices we need to reach the threshold
+        if total_sum == 0:  # Handle zero-sum case
+            return np.array([0], dtype=int)
+        
+        # Find indices that contribute to param (e.g. 80%) of the total sum
+        threshold_idx = np.searchsorted(cumsum / total_sum, param)
+        threshold_idx = max(min_indices, min(threshold_idx + 1, max_indices))
+        return sorted_indices[:threshold_idx]
+    
+    elif method == 'percentile':
+        # Select indices above a certain percentile
+        threshold = np.percentile(vector, 100 - param)
+        significant_indices = np.where(vector >= threshold)[0]
+        
+        # Adjust if we have too few or too many indices
+        if len(significant_indices) < min_indices:
+            sorted_indices = np.argsort(-vector)
+            significant_indices = sorted_indices[:min_indices]
+        elif len(significant_indices) > max_indices:
+            sorted_significant = sorted(significant_indices, key=lambda i: -vector[i])
+            significant_indices = np.array(sorted_significant[:max_indices])
+            
+        return significant_indices
+    
+    elif method == 'top_n':
+        # Select the top N indices
+        n_indices = min(max(min_indices, int(param)), max_indices)
+        return np.argsort(-vector)[:n_indices]
+    
+    elif method == 'kmeans':
+        # Use k-means to separate significant from non-significant values
+        from sklearn.cluster import KMeans
+        
+        # Reshape for k-means
+        X = vector.reshape(-1, 1)
+        
+        # Try to estimate the optimal number of clusters if not specified
+        if param == 0:
+            from sklearn.metrics import silhouette_score
+            scores = []
+            for k in range(2, min(10, n)):
+                kmeans = KMeans(n_clusters=k, random_state=42).fit(X)
+                score = silhouette_score(X, kmeans.labels_)
+                scores.append(score)
+            param = np.argmax(scores) + 2  # Add 2 because we started from k=2
+        
+        # Apply k-means clustering
+        kmeans = KMeans(n_clusters=int(param), random_state=42).fit(X)
+        
+        # Get the cluster with the highest mean value
+        cluster_means = [np.mean(vector[kmeans.labels_ == i]) for i in range(int(param))]
+        top_cluster = np.argmax(cluster_means)
+        
+        # Get indices belonging to the top cluster
+        significant_indices = np.where(kmeans.labels_ == top_cluster)[0]
+        
+        # Sort by value within the cluster and apply min/max constraints
+        significant_indices = sorted(significant_indices, key=lambda i: -vector[i])
+        significant_indices = np.array(significant_indices[:max_indices])
+        
+        if len(significant_indices) < min_indices:
+            sorted_indices = np.argsort(-vector)
+            missing = min_indices - len(significant_indices)
+            extra_indices = [i for i in sorted_indices if i not in significant_indices][:missing]
+            significant_indices = np.append(significant_indices, extra_indices)
+            
+        return significant_indices
+    
+    elif method == 'otsu':
+        # Otsu's method to find optimal threshold
+        # Normalize to 0-255 range for Otsu's algorithm
+        if np.max(vector) == np.min(vector):
+            # Handle constant vectors
+            return np.array([0], dtype=int)
+            
+        normalized = ((vector - np.min(vector)) / (np.max(vector) - np.min(vector)) * 255).astype(np.uint8)
+        threshold = signal.threshold_otsu(normalized)
+        
+        # Convert back to original scale
+        original_threshold = threshold / 255 * (np.max(vector) - np.min(vector)) + np.min(vector)
+        significant_indices = np.where(vector >= original_threshold)[0]
+        
+        # Apply min/max constraints
+        if len(significant_indices) < min_indices:
+            sorted_indices = np.argsort(-vector)
+            significant_indices = sorted_indices[:min_indices]
+        elif len(significant_indices) > max_indices:
+            sorted_significant = sorted(significant_indices, key=lambda i: -vector[i])
+            significant_indices = np.array(sorted_significant[:max_indices])
+            
+        return significant_indices
+    
+    else:
+        raise ValueError(f"Unknown method: {method}")
+
+# Helper function to visualize results
+def visualize_selection(vector, significant_indices, title):
+    plt.figure(figsize=(10, 6))
+    plt.plot(vector, 'b-', alpha=0.5)
+    plt.plot(significant_indices, vector[significant_indices], 'ro')
+    plt.title(title)
+    plt.grid(True)
+    plt.show()
 
 class SemanticAnalyzer:
 
@@ -509,9 +658,17 @@ class ModeAnalyzer:
                     std = np.std(mode)
                     threshold = mean + n * std  # using n as the number of std devs
                     channels = np.where(mode > threshold)[0]
+
+            elif method == 'cumsum':
+                if n > 1.0:
+                    raise ValueError("For 'cumsum' method, n should be a float between 0 and 1.")
+                elif n < 0.0:
+                    raise ValueError("For 'cumsum' method, n should be a float between 0 and 1.")
+                channels = select_significant_indices(mode, method='threshold', param=n)
+    
             else:
                 raise ValueError(f"Unknown method: {method}. Use 'argsort' or 'std' ")
                 
             important_channels.extend(channels)
-            
+        important_channels = np.unique(important_channels)
         return list(important_channels)

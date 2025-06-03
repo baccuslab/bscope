@@ -5,7 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from overcomplete.sae import BatchTopKSAE, train_sae
 
-def load_sae(path, data, device, threshold=25, eval_mode=True):
+def load_sae(path, data, device, threshold=25, eval_mode=True, reconstruct=False):
 
     sae = torch.load(path, weights_only=False, map_location=device) 
     if eval_mode:
@@ -14,7 +14,12 @@ def load_sae(path, data, device, threshold=25, eval_mode=True):
         sae = sae.train()
 #
     with torch.no_grad():
-        pre_loadings, loadings = sae.encode(
+        if reconstruct:
+            print('reconstructing')
+            pre_loadings, loadings, recodata  = sae(
+            torch.from_numpy(data).float().to(device))
+        else:
+            pre_loadings, loadings= sae.encode(
             torch.from_numpy(data).float().to(device))
 #
     loadings = loadings.cpu().numpy()
@@ -33,9 +38,11 @@ def load_sae(path, data, device, threshold=25, eval_mode=True):
 
     loadings = loadings[:, alive_modes]
     dictionary = dictionary[alive_modes]
-
-
-    return loadings, dictionary, (num_alive, num_dead)
+    
+    if reconstruct:
+        return recodata, loadings, dictionary, (num_alive, num_dead)
+    else:
+        return loadings, dictionary, (num_alive, num_dead)
 
 # class SAE(nn.Module):
 #     def __init__(self,n_total_modes, device='cpu'):
