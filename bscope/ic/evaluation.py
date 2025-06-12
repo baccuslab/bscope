@@ -3,6 +3,57 @@ import torchvision
 import torch.nn as nn
 import torch
 import numpy as np
+import tqdm
+import torchvision
+import torch.nn as nn
+import torch
+import numpy as np
+
+
+def calculate_accuracy(model, val_loader, device='cuda'):
+    """
+    Evaluate a model on the validation dataset and return top-1 and top-5 accuracy.
+
+    Args:
+        model: PyTorch model to evaluate
+        val_loader: DataLoader for the validation dataset
+        device: Device to run evaluation on ('cuda' or 'cpu')
+
+    Returns:
+        top1_acc: Top-1 accuracy as a percentage
+        top5_acc: Top-5 accuracy as a percentage
+    """
+    model.eval()
+    model = model.to(device)
+
+    correct_1 = 0
+    correct_5 = 0
+    total = 0
+
+    with torch.no_grad():
+        for inputs, targets in tqdm.tqdm(val_loader):
+            inputs, targets = inputs.to(device), targets.to(device)
+
+            # Forward pass
+            outputs = model(inputs)
+
+            # Top-1 accuracy
+            _, predicted = outputs.max(1)
+            correct_1 += (predicted == targets).sum().item()
+
+            # Top-5 accuracy
+            _, top5_predicted = outputs.topk(5, 1)
+            for i in range(targets.size(0)):
+                if targets[i] in top5_predicted[i]:
+                    correct_5 += 1
+
+            total += targets.size(0)
+
+    top1_acc = 100 * correct_1 / total
+    top5_acc = 100 * correct_5 / total
+
+    return top1_acc, top5_acc
+
 
 
 def calculate_class_accuracy(model,

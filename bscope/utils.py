@@ -1,5 +1,6 @@
 import numpy as np
 
+
 def select_significant_indices(vector, method='threshold', param=0.8, min_indices=1, max_indices=None):
     """
     Select indices that contribute most to the overall sum of the vector.
@@ -137,6 +138,7 @@ def select_significant_indices(vector, method='threshold', param=0.8, min_indice
     
     else:
         raise ValueError(f"Unknown method: {method}")
+
 
 
 def mtx_corr(A, B):

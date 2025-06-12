@@ -36,7 +36,8 @@ def get_model(which_model, return_layers=False, imagenet_path='/mnt/data/imagene
     
     model.to(device)
     model.eval()
-
+    
+    print('loaded model')
     transforms = weights.transforms()
     val_dataset = datasets.ImageNet(root=imagenet_path,
                                     split='val',
