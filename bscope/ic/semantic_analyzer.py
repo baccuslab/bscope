@@ -190,7 +190,6 @@ class SemanticAnalyzer:
             for synset_name, info in self.data.items():
                 if synset_name in descendant_nodes:
                     continue  # Skip if already added
-gt
                 # Check if the synset is a descendant of any matched synset
                 if matched_synset in info['path']:
                     descendant_nodes[synset_name] = info
