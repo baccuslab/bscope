@@ -2,6 +2,16 @@ import numpy as np
 import torch
 Epsilon = 1e-6
 
+def r2_score(x, x_hat, eps=1e-6):
+    assert x.shape == x_hat.shape, "Input tensors must have the same shape"
+    assert len(x.shape) == 2, "Input tensors must be 2D"
+
+    ss_res = torch.mean((x - x_hat) ** 2)
+    ss_tot = torch.mean((x - x.mean()) ** 2)
+
+    r2 = 1 - (ss_res / (ss_tot + eps))
+
+    return torch.mean(r2)
 
 def l2(v, dims=None):
     """

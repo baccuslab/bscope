@@ -66,6 +66,7 @@ class SemanticAnalyzer:
             ]
 
         return new_tree
+
     def indices_helper(self, name, partial_match=False):
         """
         Retrieve synsets by name or partial match, including all indices from descendants.

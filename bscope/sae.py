@@ -96,6 +96,26 @@ class Encoder(nn.Module):
 
 
 
+class SigExpSAE(nn.Module):
+    def __init__(self, data_dim, num_atoms, exp, mlp_hidden_dim=512):
+        super(SigExpSAE, self).__init__()
+        self.encoder = Encoder(data_dim, num_atoms,mlp_hidden_dim)
+        self.dictionary = Dictionary(num_atoms, data_dim)
+
+        self.exp = exp
+    
+    def forward(self, x):
+        codes = self.encoder(x)
+        z = codes ** self.exp
+
+        assert z.min() >= 0, "Negative values found in z after exponentiation"
+        assert z.max() <= 1, "Values greater than 1 found in z after exponentiation"
+        # mask = (codes >= self.threshold).float().detach()
+        # z = codes * mask
+        mask = None
+
+        reconstructed = self.dictionary(z)
+        return reconstructed, codes, z, mask
 class SAE(nn.Module):
     def __init__(self, data_dim, num_atoms, threshold = 0.95, mlp_hidden_dim=512):
         super(SAE, self).__init__()
