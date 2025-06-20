@@ -9,6 +9,16 @@ import matplotlib.pyplot as plt
 import os
 
 
+class GaussianNoise(nn.Module):
+    def __init__(self, sigma=0.1):
+        super(GaussianNoise, self).__init__()
+        self.sigma = sigma
+    def forward(self, x):
+        if self.training:
+            noise = torch.randn_like(x) * self.sigma
+            return x + noise
+        return x
+
 def r2_score(x, x_hat, eps=1e-6):
     assert x.shape == x_hat.shape, "Input tensors must have the same shape"
     assert len(x.shape) == 2, "Input tensors must be 2D"
@@ -58,13 +68,17 @@ class Dictionary(nn.Module):
         self.atom_dim = atom_dim
         self.atoms = nn.Parameter(torch.rand(num_atoms, atom_dim), requires_grad=True)
         nn.init.xavier_uniform_(self.atoms)  # Initialize atoms with Xavier uniform distribution
+        self.sign_constraint = None# Options: 'positive', 'negative', 'none'N
         # nn.init.orthogonal_(self.atoms)  # Initialize atoms with orthogonal vectors
-        # self.relu = nn.ReLU()
+        self.relu = nn.ReLU()
 
 
     def forward(self, x):
         atoms = self.get_atoms()
-        # atoms = self.relu(atoms)  # Apply ReLU to atoms
+
+        if self.sign_constraint == 'positive':
+            atoms = self.relu(atoms)  # Apply ReLU to atoms
+
         return torch.matmul(x, atoms)
 
     def get_atoms(self):
@@ -77,7 +91,6 @@ class Encoder(nn.Module):
         self.data_dim = data_dim
         self.num_atoms = num_atoms
         self.mlp_hidden_dim = mlp_hidden_dim
-        print(self.data_dim, self.num_atoms, self.mlp_hidden_dim) 
         self.layers = nn.ModuleDict()
         self.layers['layernorm1'] = nn.LayerNorm(data_dim, elementwise_affine=True)
         self.layers['layer1'] = nn.Linear(data_dim, self.mlp_hidden_dim, bias=True)
@@ -96,26 +109,66 @@ class Encoder(nn.Module):
 
 
 
-class SigExpSAE(nn.Module):
-    def __init__(self, data_dim, num_atoms, exp, mlp_hidden_dim=512):
-        super(SigExpSAE, self).__init__()
+class SigSigSAE(nn.Module):
+    def __init__(self, data_dim, num_atoms, a, b, mlp_hidden_dim=512, sigma=0.05, sign_constraint=None):
+        super(SigSigSAE, self).__init__()
         self.encoder = Encoder(data_dim, num_atoms,mlp_hidden_dim)
         self.dictionary = Dictionary(num_atoms, data_dim)
 
-        self.exp = exp
-    
+        self.dictionary.sign_constraint = sign_constraint  # Set sign constraint for dictionary atoms
+        
+        self.a = a
+        self.b = b
+
+        self.noise = GaussianNoise(sigma=sigma)  # Add Gaussian noise with sigma=0.1
+
+        # x = np.linspace(0, 1, 1000)
+        # x = torch.tensor(x, dtype=torch.float32)
+
+        # y = self.sigmoid(x, a=self.a, b=self.b)  # Example parameters for steep sigmoid
+        # y = y.detach().numpy()
+
+        # plt.plot(x, y)
+        # plt.show()
+
+
+    def sigmoid(self, x, a, b):
+        """
+        Sigmoid function with parameters a and b.
+
+        Args:
+            x (torch.Tensor): Input tensor.
+            a (float): Steepness of the sigmoid curve.
+            b (float): Horizontal shift of the sigmoid curve.
+
+        An example of a very steep sigmoid function:
+
+        """
+        s = torch.clip(x, min=1e-8, max=1 - 1e-8)  # Avoid log(0) issues
+        s = 1 / (1 + torch.exp(-a * (x - b)))
+        s = torch.clamp(s, min=1e-8, max=1 - 1e-8)  # Avoid log(0) issues
+        return s 
     def forward(self, x):
-        codes = self.encoder(x)
-        z = codes ** self.exp
+        # If training
+        # if self.training:
+        if self.training:
+            codes = self.encoder(x)
+            z = self.sigmoid(codes, a=self.a, b=self.b)
+            mask = torch.ones_like(codes).float().detach()  # Use ones to keep all codes 
+            reconstructed = self.dictionary(z)
+            return reconstructed, codes, z, mask
+        else:
+            codes = self.encoder(x)
+            z= self.sigmoid(codes, a=self.a, b=self.b)
 
-        assert z.min() >= 0, "Negative values found in z after exponentiation"
-        assert z.max() <= 1, "Values greater than 1 found in z after exponentiation"
-        # mask = (codes >= self.threshold).float().detach()
-        # z = codes * mask
-        mask = None
+            mask = (codes >= self.b).float().detach()
+            mask= z* mask
 
-        reconstructed = self.dictionary(z)
-        return reconstructed, codes, z, mask
+            reconstructed = self.dictionary(mask)
+
+            return reconstructed, codes, z, mask 
+
+
 class SAE(nn.Module):
     def __init__(self, data_dim, num_atoms, threshold = 0.95, mlp_hidden_dim=512):
         super(SAE, self).__init__()
@@ -135,8 +188,69 @@ class SAE(nn.Module):
 
 
 
+def load_sigsig_sae(path, data, device, bs=1024, eval_mode=True):
+    sae = torch.load(path, map_location=device, weights_only=False)
+
+    if eval_mode:
+        sae.eval()
+    else:
+        sae.train()
+
+    dataset = TensorDataset(torch.from_numpy(data).float())
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=bs, shuffle=False)
+
+    loadings_agg = []
+    codes_agg = []
+    reconstructed_agg = []
+    data_agg = []
+    with torch.no_grad():
+
+        for batch in tqdm.tqdm(dataloader):
+            batch = batch[0]
+            data_agg.append(batch.detach().cpu().numpy())
+            reco, codes, loadings, mask = sae(batch.float().to(device))
+            loadings = mask.detach().cpu().numpy()
+            codes = codes.detach().cpu().numpy()
+            reconstructed_agg.append(reco.detach().cpu().numpy())
+            loadings_agg.append(loadings)
+            codes_agg.append(codes)
+
+        dictionary = sae.dictionary.get_atoms().detach().cpu().numpy()
+    reconstructed_agg = np.concatenate(reconstructed_agg, axis=0)
+    data_agg = np.concatenate(data_agg, axis=0)
+
+    r2 = r2_score(torch.from_numpy(data_agg).float(), torch.from_numpy(reconstructed_agg).float()).item()
+    print('R2 score: ',r2)
+    loadings = np.concatenate(loadings_agg, axis=0)
+    codes = np.concatenate(codes_agg, axis=0)
+    
+
+    binary_loadings = loadings > 0
+    summed_loadings = binary_loadings.sum(0)
+    dead_modes = summed_loadings == 0.0 
+    alive_modes = summed_loadings > 0.0
+
+    num_dead = dead_modes.sum()
+    print(f"Number of dead modes: {num_dead}")
+
+    num_alive = alive_modes.sum()
+    print(f"Number of alive modes: {num_alive}")
+
+    loadings = loadings[:, alive_modes]
+    dictionary = dictionary[alive_modes]
+    
+    return sae, loadings, dictionary, r2
+
 def load_sae(path, data, device, bs=1024, eval_mode=True):
     sae = torch.load(path, map_location=device, weights_only=False)
+
+    # Check if the model is a SigSigSAE or SAE
+    if isinstance(sae, SigSigSAE):
+        print('Found SigSigSAE model')
+        return load_sigsig_sae(path, data, device, bs, eval_mode)
+    else:
+        pass
+
 
     if eval_mode:
         sae.eval()
