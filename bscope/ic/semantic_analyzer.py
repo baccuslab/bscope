@@ -9,6 +9,17 @@ import bscope
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy import signal
+import os
+from IPython import embed
+import json
+import tqdm
+import numpy as np
+import json
+import requests
+import bscope
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy import signal
 
 class SemanticAnalyzer:
     def __init__(self, semantic_hierarchy_path ='/data/codec/hierarchy_metadata/semantic_indexes.json'):
@@ -66,7 +77,6 @@ class SemanticAnalyzer:
             ]
 
         return new_tree
-
     def indices_helper(self, name, partial_match=False):
         """
         Retrieve synsets by name or partial match, including all indices from descendants.
@@ -315,51 +325,63 @@ class SemanticAnalyzer:
         mask_array = np.array(masks)
         
         return mask_array, class_names
-    def get_concepts_from_path(self, concept):
+        
+    def get_normalized_distance(self, concept, from_top=True, use_global_max=True):
         """
-        Get all concept names from paths containing the specified concept,
-        preserving the original order they appear in each path.
+        Get normalized distance (0-1) for a concept from top or bottom of the hierarchy.
         
         Parameters:
-        - concept: String representing the starting concept to search for
+            concept (str): Concept name (e.g., 'dog')
+            from_top (bool): If True, distance is measured from root to concept.
+                            If False, distance is measured from concept to leaf.
+            use_global_max (bool): If True, normalize against global max depth of hierarchy.
+                                If False, normalize within concept's own branch.
         
         Returns:
-        - List of concept names in the order they appear in paths
+            float or None: Normalized distance in [0, 1] or None if concept not found.
         """
-        # Get all descendant nodes for the concept
-        descendants = self.get_descendant_nodes(concept)
-        
-        # Track all unique paths to handle duplicates while preserving order
-        all_paths = set()
-        for info in descendants.values():
-            all_paths.add(info['path'])
-        
-        # Process each unique path and extract names in order
-        ordered_names = []
-        seen_names = set()  # To track duplicates
-        
-        for path in all_paths:
-            # Split the path into components
-            components = path.split(".")
+        # Find the concept using same method as get_indices
+        matches = self.indices_helper(concept, partial_match=True)
+
+        if not matches:
+            print(f"[Warning] Concept '{concept}' not found in semantic data.")
+            return None
+
+        # Choose the best match (you can modify sorting to prefer specific heuristics)
+        concept_name = sorted(matches.keys(), key=lambda k: len(self.data[k]['path']))[0]
+        concept_data = self.data[concept_name]
+
+        # Get concept distances
+        distance_from_root = concept_data.get('distance_from_root', 0)
+        distance_to_leaves = concept_data.get('distance_to_leaves', 0)
+
+        print(f"Using concept: {concept_data}")
+        print(f"distance_from_root: {distance_from_root}")
+        print(f"distance_to_leaves: {distance_to_leaves}")
+
+        # Calculate the normalization factor
+        if use_global_max:
+            max_depth = 0
+            for info in self.data.values():
+                branch_depth = info.get('distance_from_root', 0) + info.get('distance_to_leaves', 0)
+                max_depth = max(max_depth, branch_depth)
+            normalizer = max_depth
+        else:
+            normalizer = distance_from_root + distance_to_leaves
+
+        if normalizer <= 0:
+            return 0.0
+
+        if from_top:
+            return distance_from_root / normalizer
+        else:
+            return distance_to_leaves / normalizer if not use_global_max else (normalizer - distance_from_root) / normalizer
+
             
-            # Process components in groups of 3 (name, pos, number)
-            i = 0
-            while i < len(components):
-                # Add the name component if not already seen
-                if i < len(components) and components[i] not in seen_names:
-                    ordered_names.append(components[i])
-                    seen_names.add(components[i])
-                
-                # Skip to the next name
-                if i + 2 < len(components) and components[i+1] == 'n':
-                    i += 3  # Standard case: skip name, 'n', and number
-                else:
-                    i += 1  # Fallback: move forward one component
-        
-        return ordered_names
-    
 if __name__ == "__main__":
     sem = SemanticAnalyzer()
     embed()
+
+
 
 
