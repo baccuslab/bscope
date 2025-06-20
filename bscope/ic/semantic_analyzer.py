@@ -209,7 +209,7 @@ class SemanticAnalyzer:
         # try looking for it as a component in paths
         if not descendant_nodes:
             for synset_name, info in self.data.items():
-                if term in info['path']:
+                if (term.decode('utf-8') if isinstance(term, bytes) else term) in info['path']:
                     descendant_nodes[synset_name] = info
                     # Now look for descendants of this synset
                     for other_synset, other_info in self.data.items():
@@ -326,7 +326,7 @@ class SemanticAnalyzer:
         
         return mask_array, class_names
         
-    def get_normalized_distance(self, concept, from_top=True, use_global_max=True):
+    def get_normalized_distance(self, concept, from_top=True, use_global_max=False):
         """
         Get normalized distance (0-1) for a concept from top or bottom of the hierarchy.
         
@@ -355,9 +355,6 @@ class SemanticAnalyzer:
         distance_from_root = concept_data.get('distance_from_root', 0)
         distance_to_leaves = concept_data.get('distance_to_leaves', 0)
 
-        print(f"Using concept: {concept_data}")
-        print(f"distance_from_root: {distance_from_root}")
-        print(f"distance_to_leaves: {distance_to_leaves}")
 
         # Calculate the normalization factor
         if use_global_max:

@@ -39,7 +39,10 @@ class ModeSummary:
         
         # Load mask labels if available
         if 'mask_labels' in self.file:
-            self.mask_labels = self.file['mask_labels'][:]
+            raw_labels = self.file['mask_labels'][:]
+            # Convert bytes to strings, strip whitespace, and extract base name
+            self.mask_labels = [label.decode('utf-8').strip().split('.')[0] if isinstance(label, bytes) 
+                            else str(label).strip().split('.')[0] for label in raw_labels]
         else:
             self.mask_labels = None
         
@@ -56,6 +59,215 @@ class ModeSummary:
 
 
 
+class ModeAnalyzer:
+    """
+    A class for analyzing modes and channels using ModeSummary data.
+    """
+    
+    def __init__(self, mode_summary: ModeSummary):
+        """
+        Initialize the ModeAnalyzer with a ModeSummary instance.
+        
+        Args:
+            mode_summary: ModeSummary instance containing the data
+        """
+        self.mode_summary = mode_summary
+    
+    def find_concept_indices(self, concept_name: str) -> List[int]:
+        """
+        Find the indices of concepts that match the given name.
+        
+        Args:
+            concept_name: The name of the concept to find
+            
+        Returns:
+            List of matching concept indices
+        """
+        if self.mode_summary.mask_labels is None:
+            raise ValueError("No mask labels available in the ModeSummary")
+            
+        matching_indices = []
+        concept_name_lower = concept_name.lower()
+        
+        for i, label in enumerate(self.mode_summary.mask_labels):
+            # Handle both string and bytes labels
+            if isinstance(label, bytes):
+                label_str = label.decode('utf-8')
+            else:
+                label_str = str(label)
+            
+            # Extract base name (same as SemanticAnalyzer)
+            base_name = label_str.split('.')[0].strip().lower()
+            
+            if base_name == concept_name_lower:
+                matching_indices.append(i)
+        
+        return matching_indices
+    
+    def get_concept_info(self, concept_name: str, select_first: bool = True) -> Tuple[int, str]:
+        """
+        Get information about a concept.
+        
+        Args:
+            concept_name: The name of the concept to find
+            select_first: If True, automatically select the first match if multiple found
+            
+        Returns:
+            Tuple of (concept_index, concept_label)
+            
+        Raises:
+            ValueError: If no matching concepts found or multiple matches found and select_first is False
+        """
+        matching_indices = self.find_concept_indices(concept_name)
+        
+        if not matching_indices:
+            raise ValueError(f"No concepts found with name '{concept_name}'")
+        
+        if len(matching_indices) > 1:
+            print(f"Found multiple matching concepts:")
+            for idx in matching_indices:
+                print(f"  {idx}: {self.mode_summary.mask_labels[idx]}")
+            
+            if select_first:
+                concept_idx = matching_indices[0]
+                print(f"Using the first match: {self.mode_summary.mask_labels[concept_idx]}")
+            else:
+                raise ValueError(f"Multiple concepts found with name '{concept_name}'. Set select_first=True to use the first match.")
+        else:
+            concept_idx = matching_indices[0]
+        
+        return concept_idx, self.mode_summary.mask_labels[concept_idx]
+    
+    def get_layer(self, layer_idx: int) -> LayerSummary:
+        """
+        Get a specific layer from the ModeSummary.
+        
+        Args:
+            layer_idx: Index of the layer to retrieve
+            
+        Returns:
+            LayerSummary for the specified layer
+            
+        Raises:
+            ValueError: If layer_idx is not found
+        """
+        for layer in self.mode_summary.layers:
+            if layer.idx == layer_idx:
+                return layer
+        
+        raise ValueError(f"Layer {layer_idx} not found. Available layers: {self.mode_summary.layer_idxs}")
+    
+    def get_top_modes(self, layer_idx: int, concept_name: str, method: str = 'percentile', 
+                     param: float = 0.7, min_indices: int = 1, max_indices: int = 50,
+                     select_first: bool = True) -> np.ndarray:
+        """
+        Get top modes for a specific layer and concept using select_significant_indices.
+        
+        Args:
+            layer_idx: Index of the layer
+            concept_name: Name of the concept to analyze
+            method: Method for select_significant_indices ('threshold', 'percentile', etc.)
+            param: Parameter for the selection method
+            min_indices: Minimum number of indices to return
+            max_indices: Maximum number of indices to return
+            select_first: Whether to auto-select first concept match
+            
+        Returns:
+            Array of mode indices
+        """
+        # Get the layer
+        layer = self.get_layer(layer_idx)
+        
+        # Get concept info
+        concept_idx, concept_label = self.get_concept_info(concept_name, select_first)
+        
+        # Get correlations for this concept (equivalent to your rs array)
+        correlations = layer.corr_mtx[:, concept_idx]
+        
+        # Use select_significant_indices to get top modes
+        modes = bscope.select_significant_indices(
+            correlations, 
+            method=method, 
+            param=param, 
+            min_indices=min_indices, 
+            max_indices=max_indices
+        )
+        
+        return modes
+    
+    def get_top_channels(self, layer_idx: int, concept_name: str, 
+                        mode_method: str = 'percentile', mode_param: float = 0.7,
+                        mode_min_indices: int = 1, mode_max_indices: int = 50,
+                        channel_method: str = 'percentile', channel_param: float = 0.5,
+                        channel_min_indices: int = 1, channel_max_indices: int = 50,
+                        select_first: bool = True) -> List[int]:
+        """
+        Get top channels for a specific layer and concept by first getting top modes,
+        then getting channels from those modes' dictionary vectors.
+        
+        Args:
+            layer_idx: Index of the layer
+            concept_name: Name of the concept to analyze
+            mode_method: Method for selecting modes
+            mode_param: Parameter for mode selection
+            mode_min_indices: Minimum number of modes
+            mode_max_indices: Maximum number of modes
+            channel_method: Method for selecting channels from each mode
+            channel_param: Parameter for channel selection
+            channel_min_indices: Minimum number of channels per mode
+            channel_max_indices: Maximum number of channels per mode
+            select_first: Whether to auto-select first concept match
+            
+        Returns:
+            List of unique channel indices across all selected modes
+        """
+        # Get the layer
+        layer = self.get_layer(layer_idx)
+        
+        # Get top modes first
+        top_modes = self.get_top_modes(
+            layer_idx, concept_name, mode_method, mode_param,
+            mode_min_indices, mode_max_indices, select_first
+        )
+        
+        # Collect channels from all modes
+        all_channels = []
+        
+        for mode_idx in top_modes:
+            # Get the dictionary vector (atom) for this mode
+            atom = layer.dictionary[mode_idx, :]
+            
+            # Get top channels for this atom
+            top_channels = bscope.select_significant_indices(
+                atom,
+                method=channel_method,
+                param=channel_param,
+                min_indices=channel_min_indices,
+                max_indices=channel_max_indices
+            )
+            
+            all_channels.extend(top_channels)
+        
+        # Return unique channels
+        return list(np.unique(all_channels))
+    
+    def get_mode_correlations(self, layer_idx: int, concept_name: str, 
+                             select_first: bool = True) -> np.ndarray:
+        """
+        Get correlation values for all modes with a specific concept.
+        
+        Args:
+            layer_idx: Index of the layer
+            concept_name: Name of the concept
+            select_first: Whether to auto-select first concept match
+            
+        Returns:
+            Array of correlation values (equivalent to your rs array)
+        """
+        layer = self.get_layer(layer_idx)
+        concept_idx, _ = self.get_concept_info(concept_name, select_first)
+        return layer.corr_mtx[:, concept_idx]
+    
 
 # class ModeAnalyzer:
 #     """
