@@ -14,6 +14,11 @@ def load_contribution_data(file_path, data_type, layer=0, sign='concat', norm=Tr
         positive = data['pos'][:]
 
         data = np.concatenate((positive, negative), axis=1)
+
+    elif sign == 'sum':
+        data = data['neg'][:] + data['pos'][:]
+        
+
     elif sign == 'positive':
         data = data['pos'][:]
 

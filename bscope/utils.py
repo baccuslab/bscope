@@ -569,7 +569,7 @@ def mtx_corr(A, B):
     return correlation_matrix
 
 
-def ei_split(matrix):
+def ei_split(matrix, patch=False):
     """
     Splits a matrix into positive and negative parts.
     
@@ -581,8 +581,11 @@ def ei_split(matrix):
     """
     pos = np.where(matrix > 0, matrix, 0)
     neg = np.where(matrix < 0, matrix, 0)
-
-    cat = np.concatenate([neg, pos], axis=1)
+    
+    if patch:
+        cat = np.concatenate([neg, pos], axis=-1)
+    else:
+        cat = np.concatenate([neg, pos], axis=1)
     return cat
 
 def compute_participation_ratio(matrix):

@@ -289,6 +289,16 @@ class Scope:
                         a = a.sum((2, 3))
                         c = c.sum((2, 3))
 
+                    if 'patch_ei_split' in self.reduction:
+                        g = ei_split(g, patch=True)
+                        a = ei_split(a, patch=True)
+                        c = ei_split(c, patch=True)
+
+                    if 'patch_sum' in self.reduction:
+                        g = g.sum(1)
+                        a = a.sum(1)
+                        c = c.sum(1)
+
                 self.log_gradients[layer].append(g)
                 self.log_activations[layer].append(a)
                 self.log_contributions[layer].append(c)
