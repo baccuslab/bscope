@@ -35,6 +35,19 @@ def get_model(which_model, return_layers=False, imagenet_path='/data/codec/image
     elif which_model == 'mobilenet_large':
         weights = MobileNet_V3_Large_Weights.IMAGENET1K_V1
         model = models.mobilenet_v3_large(weights=weights)
+
+    elif which_model=='vit':
+        model = timm.create_model('vit_base_patch16_224', pretrained=True).eval().to(
+            device)
+
+        transform = transforms.Compose(
+            [transforms.Resize(
+                (224, 224),
+                interpolation=transforms.InterpolationMode.BICUBIC, antialias=True),
+             transforms.ToTensor(),
+             transforms.Normalize(mean=[0.5, 0.5, 0.5],
+                                  std=[0.5, 0.5, 0.5])])
+
     
     elif which_model == 'convnext':
         model = timm.create_model('convnext_small.fb_in1k', pretrained=True).eval().to(device)
@@ -52,12 +65,20 @@ def get_model(which_model, return_layers=False, imagenet_path='/data/codec/image
 
     if which_model != 'convnext':
         if which_model != 'mobilenet_lam':
-            transform = weights.transforms()
+            if which_model != 'vit':
+                transform = weights.transforms()
 
-    val_dataset = CustomImageNetDataset(root=imagenet_path,
-                                    split='val',
-                                    transform=transform,
-                                    subsample=subsample)
+    
+    if subsample is not None:
+        val_dataset = CustomImageNetDataset(root=imagenet_path,
+                                        split='val',
+                                        transform=transform,
+                                        subsample=subsample)
+    else:
+        val_dataset = datasets.ImageNet(root=imagenet_path,
+                                        split='val',
+                                        transform=transform)
+
 
 
     val_dataloader = DataLoader(val_dataset,
@@ -98,6 +119,14 @@ def get_model(which_model, return_layers=False, imagenet_path='/data/codec/image
             for stage in model.stages:
                 for block in stage.blocks:
                     model_layers.append(block)
+
+            print('Found {} layers'.format(len(model_layers)))
+            
+            return model, val_dataset, val_dataloader, model_layers
+        elif 'vit' in which_model:
+            model_layers = []
+            for block in model.blocks:
+                model_layers.append(block)
 
             print('Found {} layers'.format(len(model_layers)))
             

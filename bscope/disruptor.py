@@ -24,6 +24,8 @@ class Disruptor:
     def _hook_fn(self, module, input, output):
         if self.style == 'destroy':
             output[:, self.channels] = 0
+        elif self.style == 'patch_destroy':
+            output[:, :, self.channels] = 0
         elif self.style == 'corrupt':
             output[:, self.channels] += torch.randn_like(
                 output[:, self.channels]) * self.scale
