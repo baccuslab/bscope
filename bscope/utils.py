@@ -519,6 +519,27 @@ def select_significant_indices(vector, method='threshold', param=0.8, min_indice
             significant_indices = np.array(sorted_significant[:max_indices])
             
         return significant_indices
+    elif method == 'std':
+    # Select indices above param standard deviations from the mean
+        mean_val = np.mean(vector)
+        std_val = np.std(vector)
+        
+        if std_val == 0:  # Handle constant vectors
+            sorted_indices = np.argsort(-vector)
+            return sorted_indices[:min_indices]
+        
+        threshold = mean_val + param * std_val
+        significant_indices = np.where(vector >= threshold)[0]
+        
+        # Adjust if we have too few or too many indices
+        if len(significant_indices) < min_indices:
+            sorted_indices = np.argsort(-vector)
+            significant_indices = sorted_indices[:min_indices]
+        elif len(significant_indices) > max_indices:
+            sorted_significant = sorted(significant_indices, key=lambda i: -vector[i])
+            significant_indices = np.array(sorted_significant[:max_indices])
+            
+        return significant_indices
     
     else:
         raise ValueError(f"Unknown method: {method}")
