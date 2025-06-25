@@ -1,5 +1,4 @@
 from IPython import embed
-import overcomplete
 import torch.nn.functional as F
 import torch.nn as nn
 from torch.utils.data import TensorDataset
@@ -62,6 +61,25 @@ def coherence_regularization(W, normalize=True):
     return coherence_penalty/ W_norm.size(1)  # Normalize by number of columns
 
 
+class NNDictionary(nn.Module):
+    def __init__(self, num_atoms, atom_dim):
+        super(NNDictionary, self).__init__()
+        self.num_atoms = num_atoms
+        self.atom_dim = atom_dim
+        self.atoms = nn.Parameter(torch.rand(num_atoms, atom_dim), requires_grad=True)
+        nn.init.xavier_uniform_(self.atoms)  # Initialize atoms with Xavier uniform distribution
+        self.relu = nn.ReLU()
+
+
+    def forward(self, x):
+        atoms = self.get_atoms()
+        return torch.matmul(x, atoms)
+
+    def get_atoms(self):
+        atoms = self.atoms
+        atoms = self.relu(atoms)  # Apply ReLU to atoms
+        return atoms
+
 class Dictionary(nn.Module):
     def __init__(self, num_atoms, atom_dim):
         super(Dictionary, self).__init__()
@@ -96,8 +114,9 @@ class Encoder(nn.Module):
         # self.layers['layernorm1'] = nn.LayerNorm(data_dim, elementwise_affine=True)
         self.layers['layer1'] = nn.Linear(data_dim, self.mlp_hidden_dim, bias=True)
         self.layers['layernorm1'] = nn.LayerNorm(self.mlp_hidden_dim, elementwise_affine=True)
-        self.layers['relu1'] = nn.ReLU()# Add sigmoid activation
         self.layers['dropout1'] = nn.Dropout(p=0.05)  # Add dropout layer with p=0.2
+        self.layers['relu1'] = nn.ReLU()# Add sigmoid activation
+
 
         self.layers['layer2'] = nn.Linear(self.mlp_hidden_dim, num_atoms, bias=False)
         self.layers['sigmoid'] = nn.Sigmoid()  # Add sigmoid activation
@@ -168,6 +187,23 @@ class SigSigSAE(nn.Module):
             return codes, z, reconstructed
 
 
+class NNSigThreshSAE(nn.Module):
+    def __init__(self, data_dim, num_atoms, threshold = 0.95, mlp_hidden_dim=512):
+        super(NNSigThreshSAE, self).__init__()
+        self.encoder = Encoder(data_dim, num_atoms,mlp_hidden_dim)
+        self.dictionary = NNDictionary(num_atoms, data_dim)
+
+        self.threshold = threshold
+    
+    def forward(self, x):
+        codes = self.encoder(x)
+
+        mask = (codes >= self.threshold).float().detach()
+        z = codes * mask
+
+        reconstructed = self.dictionary(z)
+        return codes, z, reconstructed 
+
 class SigThreshSAE(nn.Module):
     def __init__(self, data_dim, num_atoms, threshold = 0.95, mlp_hidden_dim=512):
         super(SigThreshSAE, self).__init__()
@@ -231,6 +267,8 @@ def load_sae(path, data, device, bs=1024, eval_mode=True, alive_threshold=0):
     data_agg = np.concatenate(data_agg, axis=0)
 
     r2 = r2_score(torch.from_numpy(data_agg).float(), torch.from_numpy(reconstructed_agg).float()).item()
+    
+    print(r2)
 
     loadings = np.concatenate(z_agg, axis=0)
     codes = np.concatenate(codes_agg, axis=0)
@@ -250,5 +288,5 @@ def load_sae(path, data, device, bs=1024, eval_mode=True, alive_threshold=0):
     loadings = loadings[:, alive_modes]
     dictionary = dictionary[alive_modes]
     
-    return sae, loadings, dictionary, r2
+    return sae, loadings, dictionary, data_agg, reconstructed_agg, r2
 

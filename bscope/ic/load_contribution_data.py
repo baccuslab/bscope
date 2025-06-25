@@ -24,7 +24,8 @@ def load_contribution_data(file_path, data_type, layer=0, sign='concat', norm=Tr
 
     elif sign == 'negative':
         data = data['neg'][:]
-
-    data = data / np.std(data)
+    
+    if norm:
+        data = data / np.std(data)
 
     return data, targets
