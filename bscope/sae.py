@@ -61,24 +61,6 @@ def coherence_regularization(W, normalize=True):
     return coherence_penalty/ W_norm.size(1)  # Normalize by number of columns
 
 
-class NNDictionary(nn.Module):
-    def __init__(self, num_atoms, atom_dim):
-        super(NNDictionary, self).__init__()
-        self.num_atoms = num_atoms
-        self.atom_dim = atom_dim
-        self.atoms = nn.Parameter(torch.rand(num_atoms, atom_dim), requires_grad=True)
-        nn.init.xavier_uniform_(self.atoms)  # Initialize atoms with Xavier uniform distribution
-        self.relu = nn.ReLU()
-
-
-    def forward(self, x):
-        atoms = self.get_atoms()
-        return torch.matmul(x, atoms)
-
-    def get_atoms(self):
-        atoms = self.atoms
-        atoms = self.relu(atoms)  # Apply ReLU to atoms
-        return atoms
 
 class Dictionary(nn.Module):
     def __init__(self, num_atoms, atom_dim):
@@ -87,22 +69,15 @@ class Dictionary(nn.Module):
         self.atom_dim = atom_dim
         self.atoms = nn.Parameter(torch.rand(num_atoms, atom_dim), requires_grad=True)
         nn.init.xavier_uniform_(self.atoms)  # Initialize atoms with Xavier uniform distribution
-        # self.sign_constraint = None# Options: 'positive', 'negative', 'none'N
-        # nn.init.orthogonal_(self.atoms)  # Initialize atoms with orthogonal vectors
         self.relu = nn.ReLU()
 
 
     def forward(self, x):
         atoms = self.get_atoms()
-
-        # if self.sign_constraint == 'positive':
-        #     atoms = self.relu(atoms)  # Apply ReLU to atoms
-
         return torch.matmul(x, atoms)
 
-    def get_atoms(self):
-        atoms = self.atoms
-        return atoms
+    def get_dictionary(self):
+        return self.atoms
 
 class Encoder(nn.Module):
     def __init__(self, data_dim, num_atoms, mlp_hidden_dim=512):
@@ -187,39 +162,6 @@ class SigSigSAE(nn.Module):
             return codes, z, reconstructed
 
 
-class NNSigThreshSAE(nn.Module):
-    def __init__(self, data_dim, num_atoms, threshold = 0.95, mlp_hidden_dim=512):
-        super(NNSigThreshSAE, self).__init__()
-        self.encoder = Encoder(data_dim, num_atoms,mlp_hidden_dim)
-        self.dictionary = NNDictionary(num_atoms, data_dim)
-
-        self.threshold = threshold
-    
-    def forward(self, x):
-        codes = self.encoder(x)
-
-        mask = (codes >= self.threshold).float().detach()
-        z = codes * mask
-
-        reconstructed = self.dictionary(z)
-        return codes, z, reconstructed 
-
-class SigThreshSAE(nn.Module):
-    def __init__(self, data_dim, num_atoms, threshold = 0.95, mlp_hidden_dim=512):
-        super(SigThreshSAE, self).__init__()
-        self.encoder = Encoder(data_dim, num_atoms,mlp_hidden_dim)
-        self.dictionary = Dictionary(num_atoms, data_dim)
-
-        self.threshold = threshold
-    
-    def forward(self, x):
-        codes = self.encoder(x)
-
-        mask = (codes >= self.threshold).float().detach()
-        z = codes * mask
-
-        reconstructed = self.dictionary(z)
-        return codes, z, reconstructed 
 
 
 
