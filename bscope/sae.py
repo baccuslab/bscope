@@ -73,7 +73,7 @@ class Dictionary(nn.Module):
 
 
     def forward(self, x):
-        atoms = self.get_atoms()
+        atoms = self.get_dictionary()
         return torch.matmul(x, atoms)
 
     def get_dictionary(self):
@@ -219,7 +219,7 @@ def load_sae(path, data, device, bs=1024, eval_mode=True, alive_threshold=0):
             codes_agg.append(codes)
     
         try:
-            dictionary = sae.dictionary.get_atoms().detach().cpu().numpy()
+            dictionary = sae.dictionary.get_dictionary().detach().cpu().numpy()
         except:
             dictionary=  sae.get_dictionary().detach().cpu().numpy()
 
