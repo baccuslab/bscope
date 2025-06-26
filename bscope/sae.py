@@ -112,6 +112,24 @@ class Encoder(nn.Module):
         return x
 
 
+class SigThreshSAE(nn.Module):
+    def __init__(self, data_dim, num_atoms, threshold = 0.95, mlp_hidden_dim=512):
+        super(SigThreshSAE, self).__init__()
+        self.encoder = Encoder(data_dim, num_atoms,mlp_hidden_dim)
+        self.dictionary = Dictionary(num_atoms, data_dim)
+
+        self.threshold = threshold
+    
+    def forward(self, x):
+        codes = self.encoder(x)
+
+        mask = (codes >= self.threshold).float().detach()
+        z = codes * mask
+
+        reconstructed = self.dictionary(z)
+        return codes, z, reconstructed 
+
+
 
 class SigSigSAE(nn.Module):
     def __init__(self, data_dim, num_atoms, a, b, mlp_hidden_dim=512, sigma=0.05):
