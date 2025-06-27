@@ -45,6 +45,7 @@ class ModeSummary:
                             else str(label).strip().split('.')[0] for label in raw_labels]
         else:
             self.mask_labels = None
+        self.mask_matrix = self.file['mask_matrix'][:] if 'mask_matrix' in self.file else None
         
         self.layer_idxs = np.sort([int(l) for l in list(self.file['layers'].keys())])
         self.layers = []
@@ -64,14 +65,17 @@ class ModeAnalyzer:
     A class for analyzing modes and channels using ModeSummary data.
     """
     
-    def __init__(self, mode_summary: ModeSummary):
-        """
-        Initialize the ModeAnalyzer with a ModeSummary instance.
-        
-        Args:
-            mode_summary: ModeSummary instance containing the data
-        """
-        self.mode_summary = mode_summary
+
+    def __init__(self, mode_summary: ModeSummary, contributions=None):
+            """
+            Initialize the ModeAnalyzer with a ModeSummary instance.
+            
+            Args:
+                mode_summary: ModeSummary instance containing the data
+                contributions: Optional contributions array for sample analysis
+            """
+            self.mode_summary = mode_summary
+            self.contributions = contributions
     
     def find_concept_indices(self, concept_name: str) -> List[int]:
         """
@@ -268,6 +272,37 @@ class ModeAnalyzer:
         concept_idx, _ = self.get_concept_info(concept_name, select_first)
         return layer.corr_mtx[:, concept_idx]
     
+    def get_concept_sample_indices(self, concept_idx: int) -> np.ndarray:
+        """
+        Get the sample indices for a specific concept.
+        
+        Args:
+            concept_idx: The index of the concept
+            
+        Returns:
+            Array of sample indices where the concept is present
+        """
+        return np.where(self.mask_matrix[:, concept_idx] == 1)[0]
+    
+    def get_average_contribution(self, concept_name: str, select_first: bool = True) -> np.ndarray:
+        """
+        Get the average contribution for a specific concept.
+        
+        Args:
+            concept_name: The name of the concept
+            select_first: Whether to auto-select first concept match
+            
+        Returns:
+            Average contribution vector across all samples for this concept
+        """
+        # Get concept index from name
+        concept_idx, _ = self.get_concept_info(concept_name, select_first)
+        
+        # Get sample indices for this concept
+        concept_indices = self.get_concept_sample_indices(concept_idx)
+        
+        # Return average contribution across samples
+        return np.mean(self.contributions[concept_indices], axis=0)
 
 # class ModeAnalyzer:
 #     """
