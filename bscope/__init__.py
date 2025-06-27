@@ -4,3 +4,4 @@ from .utils import *
 from .inspector import * 
 from .jacobian import *
 from .sae import *
+from .metrics import *
