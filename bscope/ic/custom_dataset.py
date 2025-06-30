@@ -960,7 +960,7 @@ class CustomImageNetDataset(ImageFolder):
         targets (list): The class_index value for each image in the dataset
     """
 
-    def __init__(self, root: Union[str, Path], split: str = "train", subsample = None, **kwargs: Any) -> None:
+    def __init__(self, root: Union[str, Path], split: str = "train", subsample = None, subclasses=None, **kwargs: Any) -> None:
         root = self.root = os.path.expanduser(root)
         self.split = verify_str_arg(split, "split", ("train", "val"))
 
@@ -975,15 +975,23 @@ class CustomImageNetDataset(ImageFolder):
         self.wnid_to_idx = self.class_to_idx
         self.classes = [wnid_to_classes[wnid] for wnid in self.wnids]
         self.class_to_idx = {cls: idx for idx, clss in enumerate(self.classes) for cls in clss}
+        
+        if subclasses is None:
+            subclasses =np.arange(1000)
 
         if subsample is not None:
             idxs = []
 
-            for i in range(0, 50000, 50):
-                # Pick 10 values between i and i+50
-                idxs.extend(np.random.choice(range(i, i + 50), size=subsample, replace=False).tolist())
+            for i in subclasses:
+                idxs.extend(np.random.choice(range(i * 50, (i + 1) * 50), size=subsample, replace=False).tolist())
+                
 
             self.subsample_idxs = idxs
+
+        else:
+            print('Use a different dataloader without subsampling')
+            input()
+
     def __len__(self) -> int:
         if self.subsample_idxs is not None:
             return len(self.subsample_idxs)

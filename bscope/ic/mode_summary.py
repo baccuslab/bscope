@@ -19,12 +19,20 @@ class LayerSummary:
         dictionary: Dictionary/atoms matrix from SAE (features × channels)
     """
     corr_mtx: np.ndarray
+
     loadings: np.ndarray
     dictionary: np.ndarray
+
     idx: Optional[int] = None  # Optional index for the layer, if needed
+    r2: Optional[int] = None  # Optional R-squared values for the layer
+
+    aggregated_data: Optional[np.ndarray] = None  # Aggregated data if available
+    aggregated_reconstruction: Optional[np.ndarray] = None  # Aggregated reconstruction if available
     
     def __post_init__(self):
         self.corr_mtx[np.isnan(self.corr_mtx)] = 0  # Replace NaNs with zeros
+        self.num_modes = self.dictionary.shape[0]
+
 
 class ModeSummary:
     def __init__(self, h5_path):
@@ -52,11 +60,16 @@ class ModeSummary:
         for layer_idx in self.layer_idxs:
             layer_key = str(layer_idx)
             layer_data = self.file['layers'][layer_key]
+
             corr_mtx = layer_data['corr_mtx'][:]
             loadings = layer_data['loadings'][:]
             dictionary = layer_data['dictionary'][:]
+            aggregated_data = layer_data['data_agg'][:] if 'data' in layer_data else None
+            aggregated_reconstruction = layer_data['reconstructed_agg'][:] 
+
+            r2 = layer_data.attrs['r2']
             
-            self.layers.append(LayerSummary(corr_mtx, loadings, dictionary, layer_idx))
+            self.layers.append(LayerSummary(corr_mtx, loadings, dictionary, layer_idx, r2, aggregated_data, aggregated_reconstruction))
 
 
 
@@ -66,7 +79,7 @@ class ModeAnalyzer:
     """
     
 
-    def __init__(self, mode_summary: ModeSummary, contributions=None):
+    def __init__(self, mode_summary_path: ModeSummary):
             """
             Initialize the ModeAnalyzer with a ModeSummary instance.
             
@@ -74,8 +87,7 @@ class ModeAnalyzer:
                 mode_summary: ModeSummary instance containing the data
                 contributions: Optional contributions array for sample analysis
             """
-            self.mode_summary = mode_summary
-            self.contributions = contributions
+            self.summary= ModeSummary(mode_summary_path)
     
     def find_concept_indices(self, concept_name: str) -> List[int]:
         """
@@ -87,13 +99,13 @@ class ModeAnalyzer:
         Returns:
             List of matching concept indices
         """
-        if self.mode_summary.mask_labels is None:
+        if self.summary.mask_labels is None:
             raise ValueError("No mask labels available in the ModeSummary")
             
         matching_indices = []
         concept_name_lower = concept_name.lower()
         
-        for i, label in enumerate(self.mode_summary.mask_labels):
+        for i, label in enumerate(self.summary.mask_labels):
             # Handle both string and bytes labels
             if isinstance(label, bytes):
                 label_str = label.decode('utf-8')
@@ -130,17 +142,17 @@ class ModeAnalyzer:
         if len(matching_indices) > 1:
             print(f"Found multiple matching concepts:")
             for idx in matching_indices:
-                print(f"  {idx}: {self.mode_summary.mask_labels[idx]}")
+                print(f"  {idx}: {self.summary.mask_labels[idx]}")
             
             if select_first:
                 concept_idx = matching_indices[0]
-                print(f"Using the first match: {self.mode_summary.mask_labels[concept_idx]}")
+                print(f"Using the first match: {self.summary.mask_labels[concept_idx]}")
             else:
                 raise ValueError(f"Multiple concepts found with name '{concept_name}'. Set select_first=True to use the first match.")
         else:
             concept_idx = matching_indices[0]
         
-        return concept_idx, self.mode_summary.mask_labels[concept_idx]
+        return concept_idx, self.summary.mask_labels[concept_idx]
     
     def get_layer(self, layer_idx: int) -> LayerSummary:
         """
@@ -155,11 +167,11 @@ class ModeAnalyzer:
         Raises:
             ValueError: If layer_idx is not found
         """
-        for layer in self.mode_summary.layers:
+        for layer in self.summary.layers:
             if layer.idx == layer_idx:
                 return layer
         
-        raise ValueError(f"Layer {layer_idx} not found. Available layers: {self.mode_summary.layer_idxs}")
+        raise ValueError(f"Layer {layer_idx} not found. Available layers: {self.summary.layer_idxs}")
     
     def get_top_modes(self, layer_idx: int, concept_name: str, method: str = 'percentile', 
                      param: float = 0.7, min_indices: int = 1, max_indices: int = 50,
@@ -284,25 +296,25 @@ class ModeAnalyzer:
         """
         return np.where(self.mask_matrix[:, concept_idx] == 1)[0]
     
-    def get_average_contribution(self, concept_name: str, select_first: bool = True) -> np.ndarray:
-        """
-        Get the average contribution for a specific concept.
+    # def get_average_contribution(self, concept_name: str, select_first: bool = True) -> np.ndarray:
+    #     """
+    #     Get the average contribution for a specific concept.
         
-        Args:
-            concept_name: The name of the concept
-            select_first: Whether to auto-select first concept match
+    #     Args:
+    #         concept_name: The name of the concept
+    #         select_first: Whether to auto-select first concept match
             
-        Returns:
-            Average contribution vector across all samples for this concept
-        """
-        # Get concept index from name
-        concept_idx, _ = self.get_concept_info(concept_name, select_first)
+    #     Returns:
+    #         Average contribution vector across all samples for this concept
+    #     """
+    #     # Get concept index from name
+    #     concept_idx, _ = self.get_concept_info(concept_name, select_first)
         
-        # Get sample indices for this concept
-        concept_indices = self.get_concept_sample_indices(concept_idx)
+    #     # Get sample indices for this concept
+    #     concept_indices = self.get_concept_sample_indices(concept_idx)
         
-        # Return average contribution across samples
-        return np.mean(self.contributions[concept_indices], axis=0)
+    #     # Return average contribution across samples
+    #     return np.mean(self.summary[concept_indices], axis=0)
 
 # class ModeAnalyzer:
 #     """

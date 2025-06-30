@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 from IPython import embed
 from .custom_dataset import CustomImageNetDataset
 
-def get_model(which_model, return_layers=False, imagenet_path='/data/codec/imagenet', device='cuda', subsample=None,**kwargs):
+def get_model(which_model, return_layers=False, imagenet_path='/data/codec/imagenet', device='cuda', subsample=None,subclasses=None,dataloader_only=False,**kwargs):
     
     if which_model == 'resnet50':
         weights = ResNet50_Weights.IMAGENET1K_V1
@@ -71,9 +71,11 @@ def get_model(which_model, return_layers=False, imagenet_path='/data/codec/image
     
     if subsample is not None:
         val_dataset = CustomImageNetDataset(root=imagenet_path,
-                                        split='val',
-                                        transform=transform,
-                                        subsample=subsample)
+                                                split='val',
+                                                transform=transform,
+                                                subsample=subsample,
+                                                subclasses=subclasses)
+
     else:
         val_dataset = datasets.ImageNet(root=imagenet_path,
                                         split='val',
@@ -86,6 +88,9 @@ def get_model(which_model, return_layers=False, imagenet_path='/data/codec/image
                                 num_workers=kwargs.get('num_workers', 32),
                                 pin_memory=kwargs.get('pin_memory', False),
                                 shuffle=(kwargs.get('shuffle', False)))
+
+    if dataloader_only:
+        return val_dataloader
 
     if return_layers is False:
         return model, val_dataset, val_dataloader

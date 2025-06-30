@@ -92,7 +92,6 @@ class Encoder(nn.Module):
         self.layers['dropout1'] = nn.Dropout(p=0.05)  # Add dropout layer with p=0.2
         self.layers['relu1'] = nn.ReLU()# Add sigmoid activation
 
-
         self.layers['layer2'] = nn.Linear(self.mlp_hidden_dim, num_atoms, bias=False)
         self.layers['sigmoid'] = nn.Sigmoid()  # Add sigmoid activation
         # # self.layers['dropout1'] = nn.Dropout(p=0.05)  # Add dropout layer with p=0.2
@@ -110,6 +109,57 @@ class Encoder(nn.Module):
         for layer in self.layers.values():
             x = layer(x)
         return x
+
+class DefaultEncoder(nn.Module):
+    def __init__(self, data_dim, num_atoms, mlp_hidden_dim=512):
+        super(DefaultEncoder, self).__init__()
+        self.data_dim = data_dim
+        self.num_atoms = num_atoms
+        self.mlp_hidden_dim = mlp_hidden_dim
+        self.layers = nn.ModuleDict()
+        # self.layers['layernorm1'] = nn.LayerNorm(data_dim, elementwise_affine=True)
+        self.layers['layer1'] = nn.Linear(data_dim, self.mlp_hidden_dim, bias=True)
+        # self.layers['layernorm1'] = nn.LayerNorm(self.mlp_hidden_dim, elementwise_affine=True)
+        self.layers['dropout1'] = nn.Dropout(p=0.05)  # Add dropout layer with p=0.2
+        self.layers['relu1'] = nn.ReLU()# Add sigmoid activation
+        self.layers['layernorm1'] = nn.LayerNorm(self.mlp_hidden_dim, elementwise_affine=True)
+
+        self.layers['layer2'] = nn.Linear(self.mlp_hidden_dim, self.mlp_hidden_dim, bias=True)
+        # self.layers['layernorm2'] = nn.LayerNorm(self.mlp_hidden_dim, elementwise_affine=True)
+        self.layers['dropout2'] = nn.Dropout(p=0.05)  # Add dropout layer with p=0.2
+        self.layers['relu2'] = nn.ReLU()  # Add ReLU activation
+        self.layers['layernorm2'] = nn.LayerNorm(self.mlp_hidden_dim, elementwise_affine=True)
+
+        self.layers['layer3'] = nn.Linear(self.mlp_hidden_dim, num_atoms, bias=False)
+        self.layers['sigmoid'] = nn.Sigmoid()  # Add sigmoid activation
+
+    def forward(self, x):
+        for layer in self.layers.values():
+            x = layer(x)
+        return x
+
+
+class STSAE(nn.Module):
+    def __init__(self, data_dim, num_atoms, threshold = 0.95, mlp_hidden_dim=512, encoder=None):
+        super(STSAE, self).__init__()
+
+
+        if encoder is not None:
+            self.encoder = encoder
+        else:
+            self.encoder = DefaultEncoder(data_dim, num_atoms,mlp_hidden_dim)
+
+        self.dictionary = Dictionary(num_atoms, data_dim)
+        self.threshold = threshold
+    
+    def forward(self, x):
+        codes = self.encoder(x)
+
+        mask = (codes >= self.threshold).float().detach()
+        z = codes * mask
+
+        reconstructed = self.dictionary(z)
+        return codes, z, reconstructed 
 
 
 class SigThreshSAE(nn.Module):

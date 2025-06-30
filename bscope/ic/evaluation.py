@@ -102,3 +102,43 @@ def calculate_class_accuracy(model,
                                  total_per_class[i]) * 100
 
     return class_accuracy.detach().cpu().numpy(), total_per_class.int()
+
+
+def calculate_subsample_accuracy(model,
+                             val_loader,
+                             subclasses,
+                             topk=5,
+                             device='cuda:1'):
+
+
+    model.eval()
+    model = model.to(device)
+
+    correct_per_class = torch.zeros(len(subclasses), device=device)
+    n_subsample = len(val_loader.dataset) // len(subclasses)
+    print('N subsample ', n_subsample)
+
+    label_mapping = {label: idx for idx, label in enumerate(subclasses)}
+
+    with torch.no_grad():
+        for inputs, targets in tqdm.tqdm(val_loader):
+            inputs, targets = inputs.to(device), targets.to(device)
+            outputs = model(inputs)
+
+            # Get top max(target_topk, nontarget_topk) predictions once for efficiency
+            _, pred_all = outputs.topk(topk, dim=1, largest=True, sorted=True)
+        
+            for i in range(targets.size(0)):
+                label = targets[i].item()
+                pred = pred_all[i][:topk]
+
+                if label in pred:
+                    correct_per_class[label_mapping[label]] += 1
+
+    class_accuracy = torch.zeros(len(subclasses), device=device)
+    num_classes = len(subclasses)
+    for i in range(num_classes):
+        class_accuracy[i] = (correct_per_class[i] /
+                                 n_subsample) * 100
+
+    return class_accuracy.detach().cpu().numpy()
