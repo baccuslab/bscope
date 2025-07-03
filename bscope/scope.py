@@ -32,7 +32,7 @@ def normalize_batch_across_cyx(array):
     
     return normalized
 
-class Scope:
+class Scope():
     """
     last_X is the full
     X is the appropriate reduction
