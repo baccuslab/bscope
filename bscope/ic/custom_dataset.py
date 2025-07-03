@@ -981,11 +981,16 @@ class CustomImageNetDataset(ImageFolder):
 
         if subsample is not None:
             idxs = []
-
-            for i in subclasses:
+            
+            # Handle both single class and list of classes
+            if isinstance(subclasses, (list, np.ndarray)):
+                classes_to_sample = subclasses
+            else:
+                classes_to_sample = [subclasses] if subclasses is not None else np.arange(1000)
+            
+            for i in classes_to_sample:
                 idxs.extend(np.random.choice(range(i * 50, (i + 1) * 50), size=subsample, replace=False).tolist())
-                
-
+            
             self.subsample_idxs = idxs
 
         else:

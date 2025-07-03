@@ -62,6 +62,7 @@ class ModeSummary:
             layer_data = self.file['layers'][layer_key]
 
             corr_mtx = layer_data['corr_mtx'][:]
+            corr_mtx=corr_mtx.T
             loadings = layer_data['loadings'][:]
             dictionary = layer_data['dictionary'][:]
             aggregated_data = layer_data['data_agg'][:] if 'data' in layer_data else None

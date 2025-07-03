@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import matplotlib as mpl
 Epsilon = 1e-6
 
 
@@ -337,3 +338,20 @@ def cross_entropy_degradation(original, reconstruction, epsilon=1e-10):
     
     return degradation
 
+
+def style_plot(ax):
+    # Remove top and right spines
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    
+    # Ensure linewidth is applied to remaining spines
+    ax.spines['left'].set_linewidth(2)
+    ax.spines['bottom'].set_linewidth(2)
+    
+    # Adjust tick parameters
+    ax.tick_params(width=2, size=6)# Configure global matplotlib parameters
+    mpl.rcParams['lines.linewidth'] = 2
+    mpl.rcParams['lines.markersize'] = 12
+    mpl.rcParams['font.size'] = 18
+    mpl.rcParams['xtick.labelsize'] = 16
+    mpl.rcParams['ytick.labelsize'] = 16
