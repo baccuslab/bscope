@@ -789,3 +789,20 @@ def cross_entropy_degradation(original, reconstruction, epsilon=1e-10):
     
     return degradation
 
+def dead_codes(z):
+    """
+    Check for codes that never fire and return the percentage of codes that never fire.
+
+    Parameters
+    ----------
+    z : torch.Tensor
+        Input tensor of shape (batch_size, num_codes).
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor indicating which codes are dead.
+    """
+    assert len(z.shape) == 2, "Input tensor must be 2D"
+    is_dead = (z.sum(0) == 0).float()
+    return is_dead
