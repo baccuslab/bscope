@@ -68,7 +68,7 @@ class ModeSummary:
             aggregated_data = layer_data['data_agg'][:] if 'data' in layer_data else None
             aggregated_reconstruction = layer_data['reconstructed_agg'][:] 
 
-            r2 = layer_data.attrs['r2']
+            r2 = layer_data['r2'][()] if 'r2' in layer_data else None
             
             self.layers.append(LayerSummary(corr_mtx, loadings, dictionary, layer_idx, r2, aggregated_data, aggregated_reconstruction))
 

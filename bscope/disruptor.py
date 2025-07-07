@@ -59,6 +59,17 @@ class Disruptor:
                                        mode).to(output.device)
 
             output += modal_noise
+
+        elif self.style == 'mode_weighted':
+    # Normalize the raw atom to [0,1]
+            atom = torch.from_numpy(self.channels).to(output.device)
+            normalized_atom = (atom - atom.min()) / (atom.max() - atom.min())
+            
+            # Create scaling vector (1.0 = no change, 0.0 = completely suppressed)
+            scaling_vector = (1.0 - normalized_atom)
+            
+            # Apply in-place like the others
+            output[:, :] *= scaling_vector.unsqueeze(0).unsqueeze(-1).unsqueeze(-1)
         else:
             raise ValueError(f"Style {self.style} not supported")
 
