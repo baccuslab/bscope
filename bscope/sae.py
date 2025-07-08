@@ -234,6 +234,34 @@ class SigSigSAE(nn.Module):
 
 
 
+class TopKSAE(nn.Module):
+    def __init__(self, data_dim, num_atoms, k, mlp_hidden_dim=512):
+        super(TopKSAE, self).__init__()
+        self.encoder = Encoder(data_dim, num_atoms, mlp_hidden_dim)
+        self.dictionary = Dictionary(num_atoms, data_dim)
+        
+        # k parameter for TopK selection
+        self.k = k
+    
+    def forward(self, x):
+        codes = self.encoder(x)
+        
+        # TopK selection mechanism
+        # Select top-k activations and zero out the rest
+        batch_size = codes.shape[0]
+        k_actual = min(self.k, codes.shape[1])  # Handle case where k > num_atoms
+        
+        # Get topk values and indices
+        topk_values, topk_indices = torch.topk(codes, k_actual, dim=1)
+        
+        # Create sparse codes with only top-k activations
+        z = torch.zeros_like(codes)
+        z.scatter_(1, topk_indices, topk_values)
+        
+        reconstructed = self.dictionary(z)
+        return codes, z, reconstructed
+
+
 def load_sae(path, data, device, bs=1024, eval_mode=True, alive_threshold=0):
     sae = torch.load(path, map_location=device, weights_only=False)
 
