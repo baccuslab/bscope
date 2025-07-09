@@ -262,6 +262,44 @@ class TopKSAE(nn.Module):
         return codes, z, reconstructed
 
 
+class BatchTopKSAE(nn.Module):
+    def __init__(self, data_dim, num_atoms, k, mlp_hidden_dim=512):
+        super(BatchTopKSAE, self).__init__()
+        self.encoder = Encoder(data_dim, num_atoms, mlp_hidden_dim)
+        self.dictionary = Dictionary(num_atoms, data_dim)
+        
+        # k parameter for BatchTopK selection
+        self.k = k
+    
+    def forward(self, x):
+        codes = self.encoder(x)
+        
+        # BatchTopK selection mechanism
+        # Instead of applying TopK to each sample independently, 
+        # it flattens all feature activations across the batch,
+        # takes the top (K * batch_size) activations,
+        # then reshapes the result back to the original batch shape.
+        
+        batch_size = codes.shape[0]
+        total_k = self.k * batch_size
+        
+        # Flatten all activations across the batch
+        codes_flat = codes.flatten()
+        
+        # Get top (K * batch_size) activations across entire batch
+        topk_values, topk_indices = torch.topk(codes_flat, min(total_k, codes_flat.shape[0]), dim=-1)
+        
+        # Create sparse codes with only top-k activations across batch
+        z_flat = torch.zeros_like(codes_flat)
+        z_flat.scatter_(0, topk_indices, topk_values)
+        
+        # Reshape back to original batch shape
+        z = z_flat.reshape(codes.shape)
+        
+        reconstructed = self.dictionary(z)
+        return codes, z, reconstructed
+
+
 def load_sae(path, data, device, bs=1024, eval_mode=True, alive_threshold=0):
     sae = torch.load(path, map_location=device, weights_only=False)
 
