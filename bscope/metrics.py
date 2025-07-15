@@ -806,3 +806,26 @@ def dead_codes(z):
     assert len(z.shape) == 2, "Input tensor must be 2D"
     is_dead = (z.sum(0) == 0).float()
     return is_dead
+
+def compute_stability(dict1, dict2):
+    """Compute stability between two dictionaries using Hungarian matching"""
+    from scipy.optimize import linear_sum_assignment
+    
+    # Normalize dictionaries
+    dict1_norm = dict1 / (dict1.norm(dim=1, keepdim=True) + 1e-8)
+    dict2_norm = dict2 / (dict2.norm(dim=1, keepdim=True) + 1e-8)
+    
+    # Compute cosine similarity matrix
+    similarity_matrix = torch.mm(dict1_norm, dict2_norm.T)
+    
+    # Convert to cost matrix (1 - similarity)
+    cost_matrix = (1 - similarity_matrix).cpu().numpy()
+    
+    # Hungarian assignment
+    row_ind, col_ind = linear_sum_assignment(cost_matrix)
+    
+    # Stability = average similarity of best matches
+    matched_similarities = similarity_matrix[row_ind, col_ind]
+    stability = torch.mean(matched_similarities)
+    
+    return stability

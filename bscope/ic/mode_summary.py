@@ -253,6 +253,7 @@ class ModeAnalyzer:
         for mode_idx in top_modes:
             # Get the dictionary vector (atom) for this mode
             atom = layer.dictionary[mode_idx, :]
+
             
             # Get top channels for this atom
             top_channels = bscope.select_significant_indices(
@@ -264,9 +265,8 @@ class ModeAnalyzer:
             )
             
             all_channels.extend(top_channels)
-        
-        # Return unique channels
-        return list(np.unique(all_channels))
+        return all_channels
+
     
     def get_mode_correlations(self, layer_idx: int, concept_name: str, 
                              select_first: bool = True) -> np.ndarray:
@@ -296,7 +296,539 @@ class ModeAnalyzer:
             Array of sample indices where the concept is present
         """
         return np.where(self.mask_matrix[:, concept_idx] == 1)[0]
+    def find_similar_concepts_by_channels(
+        self, 
+        seed_concept: str, 
+        layer_idx: int, 
+        top_n_channels: int = 20,
+        mode_method: str = 'percentile', 
+        mode_param: float = 0.7,
+        channel_method: str = 'percentile', 
+        channel_param: float = 0.5,
+        min_overlap: int = 1,
+        select_first: bool = True
+    ) -> List[Tuple[str, int, float, List[int]]]:
+        """
+        Find concepts that share the most contributing channels with a seed concept.
+        
+        Args:
+            seed_concept: The concept to find similar concepts for
+            layer_idx: Which layer to analyze
+            top_n_channels: Number of top channels to consider for each concept
+            mode_method: Method for selecting the most salient mode
+            mode_param: Parameter for mode selection
+            channel_method: Method for selecting top channels from mode
+            channel_param: Parameter for channel selection
+            min_overlap: Minimum number of shared channels to include in results
+            select_first: Whether to auto-select first concept match
+            
+        Returns:
+            List of tuples: (concept_name, shared_count, overlap_ratio, shared_channels)
+            Sorted by number of shared channels (descending)
+        """
+        
+        print(f"Finding concepts similar to '{seed_concept}' at layer {layer_idx}")
+        print(f"Using top {top_n_channels} channels per concept")
+        print("-" * 60)
+        
+        # Get seed concept's top channels
+        try:
+            seed_channels = self.get_top_channels(
+                layer_idx=layer_idx,
+                concept_name=seed_concept,
+                mode_method=mode_method,
+                mode_param=mode_param,
+                mode_min_indices=1,
+                mode_max_indices=1,  # Just get the most salient mode
+                channel_method=channel_method,
+                channel_param=channel_param,
+                channel_min_indices=top_n_channels,
+                channel_max_indices=top_n_channels,
+                select_first=select_first
+            )
+            
+            # Take only the top N channels
+            channels= seed_channels[:top_n_channels]
+            seed_channels = set(seed_channels[:top_n_channels])
+
+            
+        except Exception as e:
+            print(f"Error getting channels for seed concept '{seed_concept}': {e}")
+            return []
+        
+        print(f"Seed concept '{seed_concept}' top {len(channels)} channels: {channels}")
+        print()
+        
+        # Compare with all other concepts
+        results = []
+        syn = bic.SemanticAnalyzer('/data/codec/hierarchy_metadata/semantic_indexes_test.json')
+        _, imagenet_class_names = syn.get_all_imagenet_masks(list(range(1000)))
+        for concept_label in imagenet_class_names:
+            # Skip the seed concept itself
+            base_concept_name = concept_label.split('.')[0]
+            if base_concept_name.lower() == seed_concept.lower():
+                continue
+                
+            try:
+                # Get this concept's top channels
+                concept_channels = self.get_top_channels(
+                    layer_idx=layer_idx,
+                    concept_name=base_concept_name,
+                    mode_method=mode_method,
+                    mode_param=mode_param,
+                    mode_min_indices=1,
+                    mode_max_indices=1,  # Just get the most salient mode
+                    channel_method=channel_method,
+                    channel_param=channel_param,
+                    channel_min_indices=top_n_channels,
+                    channel_max_indices=top_n_channels,
+                    select_first=True  # Auto-select to avoid prompts
+                )
+                
+                # Take only the top N channels and convert to set
+                concept_channels = set(concept_channels[:top_n_channels])
+                
+                # Calculate overlap
+                shared_channels = seed_channels.intersection(concept_channels)
+                shared_count = len(shared_channels)
+                overlap_ratio = shared_count / top_n_channels if top_n_channels > 0 else 0
+                
+                # Only include if meets minimum overlap threshold
+                if shared_count >= min_overlap:
+                    results.append((
+                        base_concept_name,
+                        shared_count,
+                        overlap_ratio,
+                        sorted(list(shared_channels))
+                    ))
+                    
+            except Exception as e:
+                # Skip concepts that cause errors (e.g., not found)
+                continue
+        
+        # Sort by shared count (descending), then by overlap ratio
+        results.sort(key=lambda x: (x[1], x[2]), reverse=True)
+        print("=" * 80)
+        print(f"Seed concept '{seed_concept}' top {len(seed_channels)} channels: {seed_channels}")
+        return results
+    def print_similar_concepts(
+        self, 
+        results: List[Tuple[str, int, float, List[int]]], 
+        top_n: int = 10,
+        show_channels: bool = True
+    ):
+        """
+        Pretty print the results from find_similar_concepts_by_channels
+        
+        Args:
+            results: Output from find_similar_concepts_by_channels
+            top_n: Number of top results to show
+            show_channels: Whether to show the actual shared channel numbers
+        """
+        
+        if not results:
+            print("No similar concepts found.")
+            return
+            
+        print("Most Similar Concepts:")
+        print("=" * 80)
+        
+        for i, (concept, shared_count, overlap_ratio, shared_channels) in enumerate(results[:top_n]):
+            print(f"{i+1:2d}. {concept:20s} | "
+                  f"Shared: {shared_count:2d} | "
+                  f"Overlap: {overlap_ratio:.1%}")
+            
+            if show_channels and shared_channels:
+                # Show channels in groups of 10 for readability
+                channel_str = str(shared_channels)
+                if len(channel_str) > 80:
+                    channel_str = channel_str[:77] + "..."
+                print(f"     Shared channels: {channel_str}")
+            print()
     
+    def plot_mode_comparison(
+            analyzer, 
+            seed_concept: str,
+            results: List[Tuple[str, int, float, List[int]]],
+            layer_idx: int,
+            top_n_display: int = 10,
+            mode_method: str = 'top_n',
+            mode_param: int = 1,
+            figsize_per_subplot: Tuple[int, int] = (12, 3),
+            seed_top_n_channels: int = 20
+        ):
+        """
+        Plot seed concept's top mode and similar concepts' top modes with shared channels highlighted.
+        
+        Args:
+            analyzer: ModeAnalyzer instance
+            seed_concept: The original seed concept
+            results: Output from find_similar_concepts_by_channels
+            layer_idx: Layer to analyze
+            top_n_display: Number of similar concepts to display
+            mode_method: Method for getting top mode
+            mode_param: Parameter for mode selection
+            figsize_per_subplot: Size of each subplot
+            seed_top_n_channels: Number of top channels to highlight for seed concept
+        """
+    
+
+        display_results = results[:top_n_display]
+        total_concepts = len(display_results) + 1  # +1 for seed
+        
+        # Create subplot grid
+        fig, axes = plt.subplots(total_concepts, 1, 
+                                figsize=(figsize_per_subplot[0], 
+                                    figsize_per_subplot[1] * total_concepts))
+        
+        if total_concepts == 1:
+            axes = [axes]
+        
+        # Get layer for extracting dictionary atoms
+        layer = analyzer.get_layer(layer_idx)
+        
+        # 1. Plot SEED CONCEPT first
+        print(f"Getting seed concept '{seed_concept}' top mode...")
+        seed_modes = analyzer.get_top_modes(
+            layer_idx=layer_idx,
+            concept_name=seed_concept,
+            method=mode_method,
+            param=mode_param,
+            min_indices=1,
+            max_indices=1
+        )
+        
+        seed_mode_idx = seed_modes[0]
+        seed_atom = layer.dictionary[seed_mode_idx, :]
+        seed_correlations = analyzer.get_mode_correlations(layer_idx=layer_idx, concept_name=seed_concept)
+        
+        # Get seed's top channels for highlighting
+        seed_top_channels = analyzer.get_top_channels(
+            layer_idx=layer_idx,
+            concept_name=seed_concept,
+            mode_method=mode_method,
+            mode_param=mode_param,
+            mode_min_indices=1,
+            mode_max_indices=1,
+            channel_method='top_n',
+            channel_param=seed_top_n_channels,
+            channel_min_indices=seed_top_n_channels,
+            channel_max_indices=seed_top_n_channels,
+            select_first=True
+        )
+        seed_top_channels = set(seed_top_channels[:seed_top_n_channels])
+        
+        # Plot seed concept
+        ax = axes[0]
+        ax.plot(seed_atom, 'k-', linewidth=1, alpha=0.8)
+        ax.set_title(f'SEED: {seed_concept} (mode {seed_mode_idx}, corr={seed_correlations[seed_mode_idx]:.3f})', 
+                    fontsize=8, fontweight='bold', color='blue')
+        ax.set_ylabel('Activation', fontsize=12)
+        
+        # Highlight seed's top channels in blue
+        for ch in seed_top_channels:
+            ax.axvline(x=ch, color='blue', linestyle='-', alpha=0.6, linewidth=1.5)
+        
+        ax.text(0.02, 0.95, f'{len(seed_top_channels)} top channels', 
+                transform=ax.transAxes, va='top', fontsize=10, 
+                bbox=dict(boxstyle="round,pad=0.3", facecolor="lightblue", alpha=0.7))
+        
+        # 2. Plot SIMILAR CONCEPTS
+        for i, (concept_name, shared_count, overlap_ratio, shared_channels) in enumerate(display_results):
+            ax = axes[i + 1]
+            
+            # Get this concept's top mode
+            try:
+                # Extract base name if needed
+                base_concept_name = concept_name.split('.')[0]
+                
+                concept_modes = analyzer.get_top_modes(
+                    layer_idx=layer_idx,
+                    concept_name=base_concept_name,
+                    method=mode_method,
+                    param=mode_param,
+                    min_indices=1,
+                    max_indices=1,
+                    select_first=True
+                )
+                
+                concept_mode_idx = concept_modes[0]
+                concept_atom = layer.dictionary[concept_mode_idx, :]
+                concept_correlations = analyzer.get_mode_correlations(
+                    layer_idx=layer_idx, concept_name=base_concept_name, select_first=True
+                )
+                
+                # Plot the atom
+                ax.plot(concept_atom, 'k-', linewidth=1, alpha=0.8)
+                ax.set_title(f'{concept_name} (mode {concept_mode_idx}, corr={concept_correlations[concept_mode_idx]:.3f})\n'
+                            f'Shared: {shared_count}/{len(seed_top_channels)} ({overlap_ratio:.1%})', 
+                            fontsize=8)
+                ax.set_ylabel('Activation', fontsize=8)
+                
+                # Highlight shared channels in RED
+                for ch in shared_channels:
+                    ax.axvline(x=ch, color='red', linestyle='-', alpha=0.6, linewidth=2)
+                
+                # Highlight seed's non-shared top channels in light blue
+                non_shared_seed_channels = seed_top_channels - set(shared_channels)
+                for ch in non_shared_seed_channels:
+                    ax.axvline(x=ch, color='lightblue', linestyle='--', alpha=0.4, linewidth=1)
+                
+                # Add legend info
+                ax.text(0.02, 0.95, f'{len(shared_channels)} shared channels', 
+                        transform=ax.transAxes, va='top', fontsize=10,
+                        bbox=dict(boxstyle="round,pad=0.3", facecolor="lightcoral", alpha=0.7))
+                
+            except Exception as e:
+                ax.text(0.5, 0.5, f'Error loading {concept_name}:\n{str(e)}', 
+                        transform=ax.transAxes, ha='center', va='center', fontsize=10)
+                ax.set_title(f'{concept_name} (ERROR)', fontsize=12, color='red')
+        
+        # Set x-label only on bottom plot
+        
+        axes[-1].set_xlabel('Channel Index', fontsize=12)
+        # No x-tick labels
+        for i, ax in enumerate(axes):
+            if i != len(axes) - 1:
+                ax.set_xticks([])
+        
+        # Add overall title and legend
+        fig.suptitle(f'Mode Comparison: {seed_concept} vs Similar Concepts (Layer {layer_idx})', 
+                    fontsize=8, fontweight='bold')
+        
+        # Create legend
+        from matplotlib.lines import Line2D
+        legend_elements = [
+            Line2D([0], [0], color='blue', lw=2, label=f'{seed_concept} top channels'),
+            Line2D([0], [0], color='red', lw=2, label='Shared channels'),
+            Line2D([0], [0], color='lightblue', lw=1, linestyle='--', alpha=0.6, 
+                label=f'{seed_concept} non-shared channels')
+        ]
+        fig.legend(handles=legend_elements, loc='upper right', bbox_to_anchor=(0.98, 0.98))
+        
+        plt.tight_layout()
+        plt.subplots_adjust(top=0.92)  # Make room for suptitle and legend
+        plt.subplots_adjust(hspace=0.5)  # Increase vertical spacing
+        plt.show()
+        
+        return fig
+
+    def get_concepts_with_shared_channels(
+    self, 
+    channels: List[int], 
+    layer_idx: int, 
+    top_n: int = 5,
+    min_overlap: int = 1
+    ) -> List[Tuple[str, int, List[int]]]:
+            """
+            Find concepts that have the given channels in their top channels list.
+            
+            Args:
+                channels: List of channel indices to search for
+                layer_idx: Layer to analyze
+                top_n: Number of top channels to get for each concept
+                min_overlap: Minimum number of shared channels to include
+                
+            Returns:
+                List of (concept_name, shared_count, shared_channels) sorted by shared_count
+            """
+            results = []
+            channels_set = set(channels)
+            
+            for concept_label in self.summary.mask_labels:
+                try:
+                    # Get this concept's top channels
+                    concept_channels = self.get_top_channels(
+                        layer_idx=layer_idx,
+                        concept_name=concept_label,
+                        mode_method='top_n',
+                        mode_param=1,
+                        mode_min_indices=1,
+                        mode_max_indices=1,
+                        channel_method='top_n',
+                        channel_param=top_n,
+                        channel_min_indices=top_n,
+                        channel_max_indices=top_n,
+                        select_first=True
+                    )
+                    
+                    concept_channels_set = set(concept_channels[:top_n])
+                    shared_channels = list(channels_set.intersection(concept_channels_set))
+                    shared_count = len(shared_channels)
+                    
+                    if shared_count >= min_overlap:
+                        results.append((concept_label, shared_count, shared_channels))
+                        
+                except Exception as e:
+                    # Skip concepts that cause errors
+                    continue
+            
+            # Sort by shared count (descending)
+            results.sort(key=lambda x: x[1], reverse=True)
+            return results
+
+    def discover_related_concepts(
+        self,
+        seed_concept: str,
+        layer_idx: int,
+        seed_top_channels: int = 5,
+        concepts_top_channels: int = 5,
+        min_overlap: int = 1,
+        mode_method: str = 'top_n',
+        mode_param: int = 1,
+        channel_method: str = 'top_n',
+        channel_param: int = 10,
+        select_first: bool = True
+    ) -> Tuple[List[str], List[int], Dict]:
+        """
+        Discover related concepts through direct channel overlap analysis.
+
+        Args:
+            seed_concept: Starting concept
+            layer_idx: Layer to analyze
+            seed_top_channels: Number of top channels to get from seed
+            concepts_top_channels: Number of top channels to consider for each concept
+            min_overlap: Minimum number of shared channels to include
+            ... (other params same as existing methods)
+
+        Returns:
+            Tuple of (all_concepts, all_channels, discovery_info)
+        """
+
+        print(f"Starting discovery from seed concept: '{seed_concept}'")
+        print("=" * 60)
+
+        # Step 1: Get seed concept's top channels
+        print(f"Step 1: Getting top {seed_top_channels} channels for '{seed_concept}'")
+
+        seed_channels = self.get_top_channels(
+            layer_idx=layer_idx,
+            concept_name=seed_concept,
+            mode_method=mode_method,
+            mode_param=mode_param,
+            mode_min_indices=1,
+            mode_max_indices=1,
+            channel_method=channel_method,
+            channel_param=channel_param,
+            channel_min_indices=seed_top_channels,
+            channel_max_indices=seed_top_channels,
+            select_first=select_first
+        )
+
+        seed_channels = seed_channels[:seed_top_channels]
+        print(f"Seed channels: {seed_channels}")
+        print()
+
+        # Step 2: Find concepts that share these channels
+        print(f"Step 2: Finding concepts that have these channels in their top {concepts_top_channels}")
+
+        shared_concepts = self.get_concepts_with_shared_channels(
+            channels=seed_channels,
+            layer_idx=layer_idx,
+            top_n=concepts_top_channels,
+            min_overlap=min_overlap
+        )
+
+        # Remove seed concept from results and print
+        discovered_concepts = []
+        for concept_name, shared_count, shared_channels_list in shared_concepts:
+            if concept_name.lower() != seed_concept.lower():
+                discovered_concepts.append(concept_name)
+                print(f"{concept_name}: {shared_count} shared channels {shared_channels_list}")
+
+        print(f"\nDiscovered {len(discovered_concepts)} related concepts")
+        print()
+
+        # Step 3: Get top channels for each discovered concept
+        print(f"Step 3: Getting top {seed_top_channels} channels for each discovered concept")
+
+        all_channels = set(seed_channels)
+        concept_channel_map = {seed_concept: seed_channels}
+
+        for concept in discovered_concepts:
+            try:
+                concept_channels = self.get_top_channels(
+                    layer_idx=layer_idx,
+                    concept_name=concept,
+                    mode_method=mode_method,
+                    mode_param=mode_param,
+                    mode_min_indices=1,
+                    mode_max_indices=1,
+                    channel_method=channel_method,
+                    channel_param=channel_param,
+                    channel_min_indices=seed_top_channels,
+                    channel_max_indices=seed_top_channels,
+                    select_first=True
+                )
+
+                concept_channels = concept_channels[:seed_top_channels]
+                concept_channel_map[concept] = concept_channels
+                all_channels.update(concept_channels)
+
+                print(f"{concept}: {concept_channels}")
+
+            except Exception as e:
+                print(f"Error getting channels for {concept}: {e}")
+                continue
+
+        all_channels = sorted(list(all_channels))
+        all_concepts = [seed_concept] + discovered_concepts
+
+        print()
+        print("=" * 60)
+        print("DISCOVERY SUMMARY")
+        print("=" * 60)
+        print(f"Seed concept: {seed_concept}")
+        print(f"Discovered concepts ({len(discovered_concepts)}): {discovered_concepts}")
+        print(f"Total concepts: {len(all_concepts)}")
+        print(f"Total unique channels: {len(all_channels)}")
+        print(f"All channels: {all_channels}")
+
+        # Package discovery info
+        discovery_info = {
+            'seed_concept': seed_concept,
+            'seed_channels': seed_channels,
+            'shared_concepts': shared_concepts,
+            'concept_channel_map': concept_channel_map,
+            'discovered_concepts': discovered_concepts
+        }
+
+        return all_concepts, all_channels, discovery_info
+
+    def print_discovery_network(self, discovery_info: Dict):
+        """
+        Pretty print the discovery network showing connections.
+        """
+        print("\nDISCOVERY NETWORK")
+        print("=" * 50)
+
+        seed = discovery_info['seed_concept']
+        seed_channels = discovery_info['seed_channels']
+        shared_concepts = discovery_info['shared_concepts']
+
+        print(f"🌱 SEED: {seed}")
+        print(f"   Channels: {seed_channels}")
+        print()
+
+        print("🔗 CONCEPTS WITH SHARED CHANNELS:")
+        for concept_name, shared_count, shared_channels_list in shared_concepts:
+            if concept_name.lower() != seed.lower():
+                print(f"   {concept_name}: {shared_count} shared {shared_channels_list}")
+
+        print("\n📊 DISCOVERED CONCEPT CHANNELS:")
+        concept_channel_map = discovery_info['concept_channel_map']
+        for concept, channels in concept_channel_map.items():
+            if concept != seed:
+                print(f"   {concept}: {channels}")
+
+# Add these methods to your ModeAnalyzer class by copying them in
+
+
+
+# Add these methods to your ModeAnalyzer class by copying them in
+
+# Add these methods to your ModeAnalyzer class by copying them in
+
     # def get_average_contribution(self, concept_name: str, select_first: bool = True) -> np.ndarray:
     #     """
     #     Get the average contribution for a specific concept.

@@ -266,7 +266,22 @@ class Scope:
                     np.mean(np.array(self.last_gradients[layer]), axis=0)
                     for layer in range(self.num_layers)
                 ]
-    
+        elif self.contribution_type == 'grad_cam':
+            contributions = []
+            for layer in range(self.num_layers):
+                act = self.last_activations[layer][0]  # [B, C, H, W]
+                grad = self.last_gradients[layer][0]   # [B, C, H, W]
+                
+                # Global average pool gradients to get weights
+                weights = np.mean(grad, axis=(2, 3), keepdims=True)  # [B, C, 1, 1]
+                
+                # Weighted sum over channels
+                cam = np.sum(weights * act, axis=1, keepdims=True)  # [B, 1, H, W]
+                
+                # ReLU to keep only positive contributions
+                cam = np.maximum(cam, 0)
+                
+                contributions.append(cam)
         else:
             raise ValueError(
                 f"Unknown contribution type: {self.contribution_type}")

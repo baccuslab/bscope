@@ -374,6 +374,49 @@ class SemanticAnalyzer:
         else:
             return distance_to_leaves / normalizer if not use_global_max else (normalizer - distance_from_root) / normalizer
 
+    def get_concepts_from_path(self, concept):
+        """
+        Get all concept names from paths containing the specified concept,
+        preserving the original order they appear in each path.
+        
+        Parameters:
+        - concept: String representing the starting concept to search for
+        
+        Returns:
+        - List of concept names in the order they appear in paths
+        """
+        # Get all descendant nodes for the concept
+        descendants = self.get_descendant_nodes(concept)
+        
+        # Track all unique paths to handle duplicates while preserving order
+        all_paths = set()
+        for info in descendants.values():
+            all_paths.add(info['path'])
+        
+        # Process each unique path and extract names in order
+        ordered_names = []
+        seen_names = set()  # To track duplicates
+        
+        for path in all_paths:
+            # Split the path into components
+            components = path.split(".")
+            
+            # Process components in groups of 3 (name, pos, number)
+            i = 0
+            while i < len(components):
+                # Add the name component if not already seen
+                if i < len(components) and components[i] not in seen_names:
+                    ordered_names.append(components[i])
+                    seen_names.add(components[i])
+                
+                # Skip to the next name
+                if i + 2 < len(components) and components[i+1] == 'n':
+                    i += 3  # Standard case: skip name, 'n', and number
+                else:
+                    i += 1  # Fallback: move forward one component
+        
+        return ordered_names
+
             
 if __name__ == "__main__":
     sem = SemanticAnalyzer()
