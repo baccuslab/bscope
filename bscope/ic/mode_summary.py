@@ -296,6 +296,7 @@ class ModeAnalyzer:
             Array of sample indices where the concept is present
         """
         return np.where(self.mask_matrix[:, concept_idx] == 1)[0]
+
     def find_similar_concepts_by_channels(
         self, 
         seed_concept: str, 

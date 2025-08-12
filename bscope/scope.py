@@ -65,11 +65,11 @@ class Scope:
     def use_act_grad(self):
         self.contribution_type = 'act_grad'
     
-    def use_codec(self, version):
-        if version == 'v1':
-            self.contribution_type='codec_v1'
-        elif version == 'v2':
-            self.contribution_type='codec_v2'
+    def use_act_normgrad(self):
+        self.contribution_type='act_normgrad'
+
+    def use_normact_normgrad(self):
+        self.contribution_type='normact_normgrad'
 
     def use_jacobians(self):
         self.contribution_type = 'jacobians'
@@ -139,7 +139,7 @@ class Scope:
             stim = interpolate_stim(input_tensor, self.steps)
         elif self.contribution_type == 'smooth_grad':
             stim = corrupt_stim(input_tensor, self.sigma, self.steps)
-        elif self.contribution_type == 'codec_v1' or self.contribution_type == 'codec_v2' or self.contribution_type == 'jacobians' or self.contribution_type == 'act_grad':
+        elif self.contribution_type == 'act_normgrad' or self.contribution_type == 'normact_normgrad' or self.contribution_type == 'jacobians' or self.contribution_type == 'act_grad':
             stim = input_tensor.unsqueeze(0)
             stim.requires_grad = True
             self.steps = 1
@@ -182,7 +182,7 @@ class Scope:
             np.array(self.last_gradients[i]) for i in range(self.num_layers)
         ]
         
-        if self.contribution_type == 'codec_v1':
+        if self.contribution_type == 'act_normgrad':
             contributions = []
             for layer in range(self.num_layers):
                 act = self.last_activations[layer][0]
@@ -198,7 +198,7 @@ class Scope:
                 for layer in range(self.num_layers)
             ]
         
-        elif self.contribution_type == 'codec_v2':
+        elif self.contribution_type == 'normact_normgrad':
             contributions = []
             for layer in range(self.num_layers):
                 act = self.last_activations[layer][0]

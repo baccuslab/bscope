@@ -139,6 +139,28 @@ class DefaultEncoder(nn.Module):
         return x
 
 
+class NN_STSAE(nn.Module):
+    def __init__(self, data_dim, num_atoms, threshold = 0.95, mlp_hidden_dim=512, encoder=None):
+        super(STSAE, self).__init__()
+
+
+        if encoder is not None:
+            self.encoder = encoder
+        else:
+            self.encoder = DefaultEncoder(data_dim, num_atoms,mlp_hidden_dim)
+
+        self.dictionary = Dictionary(num_atoms, data_dim)
+        self.threshold = threshold
+        self.relu = nn.ReLU()
+    
+    def forward(self, x):
+        codes = self.encoder(x)
+
+        mask = (codes >= self.threshold).float().detach()
+        z = codes * mask
+
+        reconstructed = self.dictionary(z)
+        return codes, z, reconstructed 
 class STSAE(nn.Module):
     def __init__(self, data_dim, num_atoms, threshold = 0.95, mlp_hidden_dim=512, encoder=None):
         super(STSAE, self).__init__()

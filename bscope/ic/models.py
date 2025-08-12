@@ -69,7 +69,7 @@ def get_model(which_model, return_layers=False, imagenet_path='/data/codec/image
                 transform = weights.transforms()
 
     
-    if subsample is not None:
+    if subsample is not None or subclasses is not None:
         val_dataset = CustomImageNetDataset(root=imagenet_path,
                                                 split='val',
                                                 transform=transform,

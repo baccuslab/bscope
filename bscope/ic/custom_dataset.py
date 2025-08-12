@@ -992,8 +992,7 @@ class CustomImageNetDataset(ImageFolder):
                 idxs.extend(np.random.choice(range(i * 50, (i + 1) * 50), size=subsample, replace=False).tolist())
             
             self.subsample_idxs = idxs
-
-        else:
+        if self.subsample_idxs is not None:
             print('Use a different dataloader without subsampling')
             input()
 
