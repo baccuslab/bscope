@@ -22,7 +22,7 @@ import matplotlib.pyplot as plt
 from scipy import signal
 
 class SemanticAnalyzer:
-    def __init__(self, semantic_hierarchy_path ='/data/codec/hierarchy_metadata/semantic_indexes.json'):
+    def __init__(self, semantic_hierarchy_path ='/data/codec/hierarchy_metadata/misc/semantic_indexes_test.json'):
         self.data = self.load_data(semantic_hierarchy_path)
 
 
