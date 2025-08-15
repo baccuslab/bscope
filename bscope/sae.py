@@ -141,7 +141,7 @@ class DefaultEncoder(nn.Module):
 
 class NN_STSAE(nn.Module):
     def __init__(self, data_dim, num_atoms, threshold = 0.95, mlp_hidden_dim=512, encoder=None):
-        super(STSAE, self).__init__()
+        super(NN_STSAE, self).__init__()
 
 
         if encoder is not None:

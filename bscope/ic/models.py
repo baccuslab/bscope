@@ -151,5 +151,5 @@ def get_rgb_dataset(imagenet_path='/data/codec/imagenet', batch_size=64):
                                 batch_size=batch_size,
                                 shuffle=False)
 
-    return val_dataset
+    return val_dataset, val_dataloader
 
