@@ -63,21 +63,28 @@ def coherence_regularization(W, normalize=True):
 
 
 class Dictionary(nn.Module):
-    def __init__(self, num_atoms, atom_dim):
+    def __init__(self, num_atoms, atom_dim, nonnegative=False):
         super(Dictionary, self).__init__()
         self.num_atoms = num_atoms
         self.atom_dim = atom_dim
         self.atoms = nn.Parameter(torch.rand(num_atoms, atom_dim), requires_grad=True)
+
+        self.nonnegative = nonnegative
+
         nn.init.xavier_uniform_(self.atoms)  # Initialize atoms with Xavier uniform distribution
         self.relu = nn.ReLU()
 
 
     def forward(self, x):
         atoms = self.get_dictionary()
+
         return torch.matmul(x, atoms)
 
     def get_dictionary(self):
-        return self.atoms
+        if self.nonnegative:
+            return self.relu(self.atoms)
+        else:
+            return self.atoms
 
 class Encoder(nn.Module):
     def __init__(self, data_dim, num_atoms, mlp_hidden_dim=512):
@@ -139,9 +146,9 @@ class DefaultEncoder(nn.Module):
         return x
 
 
-class NN_STSAE(nn.Module):
+class NNSTSAE(nn.Module):
     def __init__(self, data_dim, num_atoms, threshold = 0.95, mlp_hidden_dim=512, encoder=None):
-        super(NN_STSAE, self).__init__()
+        super(NNSTSAE, self).__init__()
 
 
         if encoder is not None:
@@ -149,11 +156,12 @@ class NN_STSAE(nn.Module):
         else:
             self.encoder = DefaultEncoder(data_dim, num_atoms,mlp_hidden_dim)
 
-        self.dictionary = Dictionary(num_atoms, data_dim)
+        self.dictionary = Dictionary(num_atoms, data_dim, nonnegative=True)
         self.threshold = threshold
-        self.relu = nn.ReLU()
     
     def forward(self, x):
+        x = torch.abs(x)  # Ensure non-negative input
+
         codes = self.encoder(x)
 
         mask = (codes >= self.threshold).float().detach()
