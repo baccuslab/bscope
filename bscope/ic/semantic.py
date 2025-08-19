@@ -514,4 +514,15 @@ class ModeAnalyzer:
                 
             important_channels.extend(channels)
             
-        return list(important_channels)
+        return list(set(important_channels))  # Return only unique channel indices
+    def get_concept_correlations(self, concept_idx: int) -> np.ndarray:
+        """
+        Get correlations between a specific concept and all modes.
+        
+        Args:
+            concept_idx: The index of the concept
+            
+        Returns:
+            Array of correlations between the concept and each mode
+        """
+        return self.corr_mtx[:, concept_idx]
