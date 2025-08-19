@@ -103,8 +103,7 @@ class Scope:
         for i in range(self.num_layers):
             self.log_gradients[i] = np.concatenate(self.log_gradients[i])
             self.log_activations[i] = np.concatenate(self.log_activations[i])
-            self.log_contributions[i] = np.concatenate(
-                self.log_contributions[i])
+            self.log_contributions[i] = np.concatenate(self.log_contributions[i])
 
         self.logging = False
 
