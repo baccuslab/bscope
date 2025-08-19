@@ -6,18 +6,77 @@ import numpy as np
 import json
 import requests
 import bscope
-
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy import signal
+import os
+from IPython import embed
+import json
+import tqdm
+import numpy as np
+import json
+import requests
+import bscope
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy import signal
 
 class SemanticAnalyzer:
+    def __init__(self, semantic_hierarchy_path ='/data/codec/hierarchy_metadata/misc/semantic_indexes_test.json'):
+        self.data = self.load_data(semantic_hierarchy_path)
 
-    def __init__(self, json_file_path='/mnt/data/ic/node_data_mapping.json'):
-        self.data = self.load_data(json_file_path)
+
 
     def load_data(self, path):
         """Load synset data from JSON file."""
         with open(path, 'r') as f:
             return json.load(f)
 
+    def recursively_clean_names(self, tree):
+        new_tree = {}
+        
+        # Reverse the name if it exists
+        for k, v in tree.items():
+            if k !='name':
+                new_tree[k] = v
+            else:
+                new_tree['name'] = tree['name'].split('.n')[0]
+        
+        if 'children' in tree and tree['children']:
+            new_tree['children'] = [self.recursively_clean_names(child) for child in tree['children']]
+
+        return new_tree
+
+    def add_level_depth(self, tree, current_level=0):
+        """
+        Recursively traverse a hierarchical tree and add a 'level' key 
+        to each node indicating how many levels from the top it is.
+        
+        Args:
+            tree (dict): Dictionary with keys 'name', 'definition', 'children'
+            current_level (int): Current depth level (0 for root)
+        
+        Returns:
+            dict: New tree with 'level' key added to each node
+        """
+        # Create a new dictionary to avoid modifying the original
+        new_tree = {}
+
+        for k, v in tree.items():
+            if k != 'level':
+                new_tree[k] = v
+        
+        # Add the level depth
+        new_tree['level'] = current_level
+        
+        # Recursively process children with incremented level
+        if 'children' in tree and tree['children']:
+            new_tree['children'] = [
+                self.add_level_depth(child, current_level + 1) 
+                for child in tree['children']
+            ]
+
+        return new_tree
     def indices_helper(self, name, partial_match=False):
         """
         Retrieve synsets by name or partial match, including all indices from descendants.
@@ -142,7 +201,6 @@ class SemanticAnalyzer:
             for synset_name, info in self.data.items():
                 if synset_name in descendant_nodes:
                     continue  # Skip if already added
-
                 # Check if the synset is a descendant of any matched synset
                 if matched_synset in info['path']:
                     descendant_nodes[synset_name] = info
@@ -151,7 +209,7 @@ class SemanticAnalyzer:
         # try looking for it as a component in paths
         if not descendant_nodes:
             for synset_name, info in self.data.items():
-                if term in info['path']:
+                if (term.decode('utf-8') if isinstance(term, bytes) else term) in info['path']:
                     descendant_nodes[synset_name] = info
                     # Now look for descendants of this synset
                     for other_synset, other_info in self.data.items():
@@ -267,6 +325,55 @@ class SemanticAnalyzer:
         mask_array = np.array(masks)
         
         return mask_array, class_names
+        
+    def get_normalized_distance(self, concept, from_top=True, use_global_max=False):
+        """
+        Get normalized distance (0-1) for a concept from top or bottom of the hierarchy.
+        
+        Parameters:
+            concept (str): Concept name (e.g., 'dog')
+            from_top (bool): If True, distance is measured from root to concept.
+                            If False, distance is measured from concept to leaf.
+            use_global_max (bool): If True, normalize against global max depth of hierarchy.
+                                If False, normalize within concept's own branch.
+        
+        Returns:
+            float or None: Normalized distance in [0, 1] or None if concept not found.
+        """
+        # Find the concept using same method as get_indices
+        matches = self.indices_helper(concept, partial_match=True)
+
+        if not matches:
+            print(f"[Warning] Concept '{concept}' not found in semantic data.")
+            return None
+
+        # Choose the best match (you can modify sorting to prefer specific heuristics)
+        concept_name = sorted(matches.keys(), key=lambda k: len(self.data[k]['path']))[0]
+        concept_data = self.data[concept_name]
+
+        # Get concept distances
+        distance_from_root = concept_data.get('distance_from_root', 0)
+        distance_to_leaves = concept_data.get('distance_to_leaves', 0)
+
+
+        # Calculate the normalization factor
+        if use_global_max:
+            max_depth = 0
+            for info in self.data.values():
+                branch_depth = info.get('distance_from_root', 0) + info.get('distance_to_leaves', 0)
+                max_depth = max(max_depth, branch_depth)
+            normalizer = max_depth
+        else:
+            normalizer = distance_from_root + distance_to_leaves
+
+        if normalizer <= 0:
+            return 0.0
+
+        if from_top:
+            return distance_from_root / normalizer
+        else:
+            return distance_to_leaves / normalizer if not use_global_max else (normalizer - distance_from_root) / normalizer
+
     def get_concepts_from_path(self, concept):
         """
         Get all concept names from paths containing the specified concept,
@@ -309,130 +416,14 @@ class SemanticAnalyzer:
                     i += 1  # Fallback: move forward one component
         
         return ordered_names
-    
-import numpy as np
-import matplotlib.pyplot as plt
-import bscope
-import bscope.ic as bic
-from typing import List, Tuple, Dict, Union, Optional
+
+            
+if __name__ == "__main__":
+    sem = SemanticAnalyzer()
+    embed()
 
 
-class ModeAnalyzer:
-    """
-    A class for analyzing contributions using correlation matrices
-    and semantic masks.
-    """
-    
-    def __init__(
-        self, 
-        loadings, 
-        dictionary,
-        mask_matrix ,
-        mask_labels,
-        contributions,
-        dead_features
-    ):
-        """
-        Initialize the ConceptAnalyzer with model data.
-        
-        Args:
-            loadings: The loadings matrix from SAE (samples × features)
-            dictionary: The dictionary/atoms matrix from SAE (features × channels)
-            mask_matrix: Semantic mask matrix (concepts × samples)
-            mask_labels: Labels for each concept in mask_matrix
-            contributions: Contribution matrix (samples × channels)
-            dead_features: Optional array indicating dead features to exclude
-        """
-        self.loadings = loadings
-        self.dictionary = dictionary
-        self.mask_matrix = mask_matrix  # Ensure mask_matrix is (samples × concepts)
-        self.mask_labels = mask_labels
-        self.contributions = contributions
-        self.dead_features = dead_features
-        
-        # Calculate correlation matrix between loadings and mask matrix
-        self.corr_mtx = np.abs(bscope.mtx_corr(self.loadings, self.mask_matrix))
-        self.corr_mtx[np.isnan(self.corr_mtx)] = 0  # Replace NaNs with zeros
-    
-    def find_concept_indices(self, concept_name: str) -> List[int]:
-        """
-        Find the indices of concepts that match the given name.
-        
-        Args:
-            concept_name: The name of the concept to find
-            
-        Returns:
-            List of matching concept indices
-        """
-        matching_indices = []
-        for i, label in enumerate(self.mask_labels):
-            if label.startswith(concept_name):
-                matching_indices.append(i)
-        
-        return matching_indices
-    
-    def get_concept_info(self, concept_name: str, select_first: bool = True) -> Tuple[int, str]:
-        """
-        Get information about a concept.
-        
-        Args:
-            concept_name: The name of the concept to find
-            select_first: If True, automatically select the first match if multiple found
-            
-        Returns:
-            Tuple of (concept_index, concept_label)
-            
-        Raises:
-            ValueError: If no matching concepts found or multiple matches found and select_first is False
-        """
-        matching_indices = self.find_concept_indices(concept_name)
-        
-        if not matching_indices:
-            raise ValueError(f"No concepts found with name '{concept_name}'")
-        
-        if len(matching_indices) > 1:
-            print(f"Found multiple matching concepts:")
-            for idx in matching_indices:
-                print(f"  {idx}: {self.mask_labels[idx]}")
-            
-            if select_first:
-                concept_idx = matching_indices[0]
-                print(f"Using the first match: {self.mask_labels[concept_idx]}")
-            else:
-                raise ValueError(f"Multiple concepts found with name '{concept_name}'. Set select_first=True to use the first match.")
-        else:
-            concept_idx = matching_indices[0]
-        
-        return concept_idx, self.mask_labels[concept_idx]
-    
-    def get_concept_sample_indices(self, concept_idx: int) -> np.ndarray:
-        """
-        Get the sample indices for a specific concept.
-        
-        Args:
-            concept_idx: The index of the concept
-            
-        Returns:
-            Array of sample indices where the concept is present
-        """
-        return np.where(self.mask_matrix[:, concept_idx] == 1)[0]
-    
-    def get_average_contribution(self, concept_idx: int) -> np.ndarray:
-        """
-        Get the average contribution for a specific concept.
-        
-        Args:
-            concept_idx: The index of the concept
-            
-        Returns:
-            Average contribution vector across all samples for this concept
-        """
-        concept_indices = self.get_concept_sample_indices(concept_idx)
-        return np.mean(self.contributions[concept_indices], axis=0)
 
-    def get_average_contribution_channels(self, n: int = 10, concept_idx: int = None, method: str = 'argsort') -> np.ndarray:
-        """
-        Get important channels based on the average contribution of a specific concept.
 
         Args:
             n: Number of top channels to return (or number of std deviations if method='std')

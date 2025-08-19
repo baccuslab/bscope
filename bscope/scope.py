@@ -65,11 +65,11 @@ class Scope:
     def use_act_grad(self):
         self.contribution_type = 'act_grad'
     
-    def use_codec(self, version):
-        if version == 'v1':
-            self.contribution_type='codec_v1'
-        elif version == 'v2':
-            self.contribution_type='codec_v2'
+    def use_act_normgrad(self):
+        self.contribution_type='act_normgrad'
+
+    def use_normact_normgrad(self):
+        self.contribution_type='normact_normgrad'
 
     def use_jacobians(self):
         self.contribution_type = 'jacobians'
@@ -138,7 +138,7 @@ class Scope:
             stim = interpolate_stim(input_tensor, self.steps)
         elif self.contribution_type == 'smooth_grad':
             stim = corrupt_stim(input_tensor, self.sigma, self.steps)
-        elif self.contribution_type == 'codec_v1' or self.contribution_type == 'codec_v2' or self.contribution_type == 'jacobians' or self.contribution_type == 'act_grad':
+        elif self.contribution_type == 'act_normgrad' or self.contribution_type == 'normact_normgrad' or self.contribution_type == 'jacobians' or self.contribution_type == 'act_grad':
             stim = input_tensor.unsqueeze(0)
             stim.requires_grad = True
             self.steps = 1
@@ -181,7 +181,7 @@ class Scope:
             np.array(self.last_gradients[i]) for i in range(self.num_layers)
         ]
         
-        if self.contribution_type == 'codec_v1':
+        if self.contribution_type == 'act_normgrad':
             contributions = []
             for layer in range(self.num_layers):
                 act = self.last_activations[layer][0]
@@ -197,7 +197,7 @@ class Scope:
                 for layer in range(self.num_layers)
             ]
         
-        elif self.contribution_type == 'codec_v2':
+        elif self.contribution_type == 'normact_normgrad':
             contributions = []
             for layer in range(self.num_layers):
                 act = self.last_activations[layer][0]
@@ -265,7 +265,22 @@ class Scope:
                     np.mean(np.array(self.last_gradients[layer]), axis=0)
                     for layer in range(self.num_layers)
                 ]
-    
+        elif self.contribution_type == 'grad_cam':
+            contributions = []
+            for layer in range(self.num_layers):
+                act = self.last_activations[layer][0]  # [B, C, H, W]
+                grad = self.last_gradients[layer][0]   # [B, C, H, W]
+                
+                # Global average pool gradients to get weights
+                weights = np.mean(grad, axis=(2, 3), keepdims=True)  # [B, C, 1, 1]
+                
+                # Weighted sum over channels
+                cam = np.sum(weights * act, axis=1, keepdims=True)  # [B, 1, H, W]
+                
+                # ReLU to keep only positive contributions
+                cam = np.maximum(cam, 0)
+                
+                contributions.append(cam)
         else:
             raise ValueError(
                 f"Unknown contribution type: {self.contribution_type}")
@@ -287,6 +302,16 @@ class Scope:
                         g = g.sum((2, 3))
                         a = a.sum((2, 3))
                         c = c.sum((2, 3))
+
+                    if 'patch_ei_split' in self.reduction:
+                        g = ei_split(g, patch=True)
+                        a = ei_split(a, patch=True)
+                        c = ei_split(c, patch=True)
+
+                    if 'patch_sum' in self.reduction:
+                        g = g.sum(1)
+                        a = a.sum(1)
+                        c = c.sum(1)
 
                 self.log_gradients[layer].append(g)
                 self.log_activations[layer].append(a)

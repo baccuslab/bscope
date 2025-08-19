@@ -1,4 +1,5 @@
 from torchvision import models, datasets
+import timm
 import numpy as np
 import matplotlib.pyplot as plt
 from torchvision.models.alexnet import AlexNet_Weights
@@ -7,9 +8,10 @@ from torchvision.models.resnet import ResNet50_Weights, ResNet18_Weights, ResNet
 from torchvision import datasets, models, transforms
 from torch.utils.data import DataLoader
 from IPython import embed
+from .custom_dataset import CustomImageNetDataset
 
-def get_model(which_model, return_layers=False, imagenet_path='/mnt/data/imagenet', num_permuted_subsamples=None, device='cuda',**kwargs):
-
+def get_model(which_model, return_layers=False, imagenet_path='/data/codec/imagenet', device='cuda', subsample=None,subclasses=None,dataloader_only=False,**kwargs):
+    
     if which_model == 'resnet50':
         weights = ResNet50_Weights.IMAGENET1K_V1
         model = models.resnet50(weights=weights)
@@ -33,24 +35,52 @@ def get_model(which_model, return_layers=False, imagenet_path='/mnt/data/imagene
     elif which_model == 'mobilenet_large':
         weights = MobileNet_V3_Large_Weights.IMAGENET1K_V1
         model = models.mobilenet_v3_large(weights=weights)
+
+    elif which_model=='vit':
+        model = timm.create_model('vit_base_patch16_224', pretrained=True).eval().to(
+            device)
+
+        transform = transforms.Compose(
+            [transforms.Resize(
+                (224, 224),
+                interpolation=transforms.InterpolationMode.BICUBIC, antialias=True),
+             transforms.ToTensor(),
+             transforms.Normalize(mean=[0.5, 0.5, 0.5],
+                                  std=[0.5, 0.5, 0.5])])
+
+    
+    elif which_model == 'convnext':
+        model = timm.create_model('convnext_small.fb_in1k', pretrained=True).eval().to(device)
+
+        transform = transforms.Compose(
+            [transforms.Resize(
+                (224, 224),
+                interpolation=transforms.InterpolationMode.BICUBIC, antialias=True),
+             transforms.ToTensor(),
+             transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                  std=[0.229, 0.224, 0.225])])
     
     model.to(device)
     model.eval()
 
-    transforms = weights.transforms()
-    val_dataset = datasets.ImageNet(root=imagenet_path,
-                                    split='val',
-                                    transform=transforms)
-    if num_permuted_subsamples is not None:
-        print('Subsampling...')
-        idxs = []
-        for ci in range(1000):
-            sub_idxs = np.random.randint(ci*50, (ci+1)*50, num_permuted_subsamples)
-            idxs.extend(sub_idxs)
+    if which_model != 'convnext':
+        if which_model != 'mobilenet_lam':
+            if which_model != 'vit':
+                transform = weights.transforms()
 
-        dataset = [val_dataset[i] for i in idxs]
-        print('Loaded {} samples using random subsampling of {} per class'.format(len(dataset), num_permuted_subsamples))
-        val_dataset = dataset
+    
+    if subsample is not None or subclasses is not None:
+        val_dataset = CustomImageNetDataset(root=imagenet_path,
+                                                split='val',
+                                                transform=transform,
+                                                subsample=subsample,
+                                                subclasses=subclasses)
+
+    else:
+        val_dataset = datasets.ImageNet(root=imagenet_path,
+                                        split='val',
+                                        transform=transform)
+
 
 
     val_dataloader = DataLoader(val_dataset,
@@ -58,6 +88,10 @@ def get_model(which_model, return_layers=False, imagenet_path='/mnt/data/imagene
                                 num_workers=kwargs.get('num_workers', 32),
                                 pin_memory=kwargs.get('pin_memory', False),
                                 shuffle=(kwargs.get('shuffle', False)))
+
+    if dataloader_only:
+        return val_dataloader
+
     if return_layers is False:
         return model, val_dataset, val_dataloader
     else:
@@ -71,15 +105,39 @@ def get_model(which_model, return_layers=False, imagenet_path='/mnt/data/imagene
             
             return model, val_dataset, val_dataloader, model_layers
         elif 'mobilenet' in which_model:
+            if 'lam' in which_model:
+                model_layers = []
+                for block in model.blocks:
+                    for layer in block:
+                        model_layers.append(layer)
+            else:
+                model_layers = []
+                for block in model.features:
+                    model_layers.append(block)
+
+            print('Found {} layers'.format(len(model_layers)))
+            
+            return model, val_dataset, val_dataloader, model_layers
+
+        elif 'convnext' in which_model:
             model_layers = []
-            for block in model.features:
+            for stage in model.stages:
+                for block in stage.blocks:
+                    model_layers.append(block)
+
+            print('Found {} layers'.format(len(model_layers)))
+            
+            return model, val_dataset, val_dataloader, model_layers
+        elif 'vit' in which_model:
+            model_layers = []
+            for block in model.blocks:
                 model_layers.append(block)
 
             print('Found {} layers'.format(len(model_layers)))
             
             return model, val_dataset, val_dataloader, model_layers
 
-def get_rgb_dataset(imagenet_path='/mnt/data/imagenet', batch_size=64):
+def get_rgb_dataset(imagenet_path='/data/codec/imagenet', batch_size=64):
     transform = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
@@ -93,5 +151,5 @@ def get_rgb_dataset(imagenet_path='/mnt/data/imagenet', batch_size=64):
                                 batch_size=batch_size,
                                 shuffle=False)
 
-    return val_dataset
+    return val_dataset, val_dataloader
 
