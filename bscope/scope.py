@@ -136,13 +136,13 @@ class Scope:
 
         # Prepare the stimulus
         if self.contribution_type == 'int_grad':
-            stim = interpolate_stim(input_tensor, self.steps)
+            self.stim = interpolate_stim(input_tensor, self.steps)
         elif self.contribution_type == 'smooth_grad':
-            stim = corrupt_stim(input_tensor, self.sigma, self.steps)
+            self.stim = corrupt_stim(input_tensor, self.sigma, self.steps)
         elif self.contribution_type == 'act_normgrad' or self.contribution_type == 'normact_normgrad' or self.contribution_type == 'jacobians' or self.contribution_type == 'act_grad':
-            stim = input_tensor.unsqueeze(0)
-            stim.requires_grad = True
-            self.steps = 1
+            self.stim = input_tensor.unsqueeze(0)
+            self.stim.requires_grad = True
+            self.steps = 0
 
         else:
             raise ValueError(
@@ -152,11 +152,11 @@ class Scope:
         self.last_gradients = [[] for i in range(self.num_layers)]
         self.last_outputs = []
 
-        for step in range(self.steps):
+        for step in range(self.steps+1):
             self.model.zero_grad()
             # get device of the model
             device = next(self.model.parameters()).device
-            y = self.model(stim[step].to(device))
+            y = self.model(self.stim[step].to(device))
 
             if self.softmax:
                 y = torch.softmax(y, dim=-1)

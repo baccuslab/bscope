@@ -994,7 +994,6 @@ class CustomImageNetDataset(ImageFolder):
             self.subsample_idxs = idxs
         if self.subsample_idxs is not None:
             print('Use a different dataloader without subsampling')
-            input()
 
     def __len__(self) -> int:
         if self.subsample_idxs is not None:
