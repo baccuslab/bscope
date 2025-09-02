@@ -117,6 +117,30 @@ class Encoder(nn.Module):
             x = layer(x)
         return x
 
+class OneLayerEncoder(nn.Module):
+    def __init__(self, data_dim, num_atoms, mlp_hidden_dim=512):
+        super(OneLayerEncoder, self).__init__()
+        self.data_dim = data_dim
+        self.num_atoms = num_atoms
+        self.mlp_hidden_dim = mlp_hidden_dim
+        self.layers = nn.ModuleDict()
+        self.layers['layernorm1'] = nn.LayerNorm(data_dim, elementwise_affine=True)
+        self.layers['layer1'] = nn.Linear(data_dim, self.mlp_hidden_dim, bias=True)
+        # self.layers['layernorm1'] = nn.LayerNorm(self.mlp_hidden_dim, elementwise_affine=True)
+        self.layers['dropout1'] = nn.Dropout(p=0.05)  # Add dropout layer with p=0.2
+        self.layers['relu1'] = nn.ReLU()# Add sigmoid activation
+        self.layers['layernorm1'] = nn.LayerNorm(self.mlp_hidden_dim, elementwise_affine=True)
+
+        self.layers['layer2'] = nn.Linear(self.mlp_hidden_dim, self.mlp_hidden_dim, bias=True)
+        # self.layers['layernorm2'] = nn.LayerNorm(self.mlp_hidden_dim, elementwise_affine=True)
+        self.layers['dropout2'] = nn.Dropout(p=0.05)  # Add dropout layer with p=0.2
+        self.layers['sigmoid'] = nn.Sigmoid()  # Add sigmoid activation
+
+
+    def forward(self, x):
+        for layer in self.layers.values():
+            x = layer(x)
+        return x
 class DefaultEncoder(nn.Module):
     def __init__(self, data_dim, num_atoms, mlp_hidden_dim=512):
         super(DefaultEncoder, self).__init__()
@@ -169,6 +193,28 @@ class NNSTSAE(nn.Module):
 
         reconstructed = self.dictionary(z)
         return codes, z, reconstructed 
+
+class SSSAE(nn.Module):
+    def __init__(self, data_dim, num_atoms, threshold = 0.95, mlp_hidden_dim=512, encoder=None):
+        super(STSAE, self).__init__()
+
+
+        if encoder is not None:
+            self.encoder = encoder
+        else:
+            self.encoder = DefaultEncoder(data_dim, num_atoms,mlp_hidden_dim)
+
+        self.dictionary = Dictionary(num_atoms, data_dim)
+        self.threshold = threshold
+    
+    def forward(self, x):
+        codes = self.encoder(x)
+
+        mask = (codes >= self.threshold).float().detach()
+        z = codes * mask
+
+        reconstructed = self.dictionary(z)
+        return codes, z, reconstructed 
 class STSAE(nn.Module):
     def __init__(self, data_dim, num_atoms, threshold = 0.95, mlp_hidden_dim=512, encoder=None):
         super(STSAE, self).__init__()
@@ -211,18 +257,21 @@ class SigThreshSAE(nn.Module):
 
 
 
-class SigSigSAE(nn.Module):
-    def __init__(self, data_dim, num_atoms, a, b, mlp_hidden_dim=512, sigma=0.05):
-        super(SigSigSAE, self).__init__()
-        self.encoder = Encoder(data_dim, num_atoms,mlp_hidden_dim)
+class SSSAE(nn.Module):
+    def __init__(self, data_dim, num_atoms, a, b, mlp_hidden_dim=512, sigma=0.05, encoder=None):
+        super(SSSAE, self).__init__()
+
+        if encoder is not None:
+            self.encoder = encoder
+        else:
+            self.encoder = DefaultEncoder(data_dim, num_atoms,mlp_hidden_dim)
+
         self.dictionary = Dictionary(num_atoms, data_dim)
 
         
         self.a = a
         self.b = b
 
-        self.noise = GaussianNoise(sigma=sigma)  # Add Gaussian noise with sigma=0.1
-        
     def sigmoid(self, x, a, b):
         """
         Sigmoid function with parameters a and b.
@@ -232,32 +281,39 @@ class SigSigSAE(nn.Module):
             a (float): Steepness of the sigmoid curve.
             b (float): Horizontal shift of the sigmoid curve.
 
-        An example of a very steep sigmoid function:
+        An example of a very steep sigmoid function would be a
+
 
         """
         s = torch.clip(x, min=1e-8, max=1 - 1e-8)  # Avoid log(0) issues
         s = 1 / (1 + torch.exp(-a * (x - b)))
         s = torch.clamp(s, min=1e-8, max=1 - 1e-8)  # Avoid log(0) issues
         return s 
+    
+    def plot_sigmoid(self):
+        x = torch.linspace(-1, 1, 100)
+        y = self.sigmoid(x, self.a, self.b).detach().cpu().numpy()
+        plt.plot(x, y)
+        plt.title(f'Sigmoid Function (a={self.a}, b={self.b})')
+        plt.show()
     def forward(self, x):
         # If training
         # if self.training:
-        if self.training:
-            codes = self.encoder(x)
-            z = self.sigmoid(codes, a=self.a, b=self.b)
-            mask = torch.ones_like(codes).float().detach()  # Use ones to keep all codes 
-            reconstructed = self.dictionary(z)
-            return codes, z, reconstructed
-        else:
-            codes = self.encoder(x)
-            z= self.sigmoid(codes, a=self.a, b=self.b)
+        # if self.training:
+        codes = self.encoder(x)
+        z = self.sigmoid(codes, a=self.a, b=self.b)
+        reconstructed = self.dictionary(z)
+        return codes, z, reconstructed
+        # else:
+        #     codes = self.encoder(x)
+        #     z= self.sigmoid(codes, a=self.a, b=self.b)
 
-            mask = (z >= self.b).float().detach()
-            z= z* mask
+        #     mask = (z >= self.b).float().detach()
+        #     z= z* mask
 
-            reconstructed = self.dictionary(z)
+        #     reconstructed = self.dictionary(z)
 
-            return codes, z, reconstructed
+        #     return codes, z, reconstructed
 
 
 

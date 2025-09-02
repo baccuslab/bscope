@@ -19,6 +19,7 @@ class LayerSummary:
         dictionary: Dictionary/atoms matrix from SAE (features × channels)
     """
     corr_mtx: np.ndarray
+    imgnet_corr_mtx: np.ndarray  # Correlation matrix with ImageNet classes
 
     loadings: np.ndarray
     dictionary: np.ndarray
@@ -31,6 +32,7 @@ class LayerSummary:
     
     def __post_init__(self):
         self.corr_mtx[np.isnan(self.corr_mtx)] = 0  # Replace NaNs with zeros
+        self.imgnet_corr_mtx[np.isnan(self.imgnet_corr_mtx)] = 0
         self.num_modes = self.dictionary.shape[0]
 
 
@@ -53,7 +55,18 @@ class ModeSummary:
                             else str(label).strip().split('.')[0] for label in raw_labels]
         else:
             self.mask_labels = None
+
+        # Load imgnet mask labels if available
+        if 'imgnet_mask_labels' in self.file:
+            raw_imgnet_labels = self.file['imgnet_mask_labels'][:]
+            self.imgnet_mask_labels = [label.decode('utf-8').strip() if isinstance(label, bytes) 
+                            else str(label).strip() for label in raw_imgnet_labels]
+        else:
+            self.imgnet_mask_labels = None
+
+
         self.mask_matrix = self.file['mask_matrix'][:] if 'mask_matrix' in self.file else None
+        self.imgnet_mask_matrix = self.file['imgnet_mask_matrix'][:] if 'imgnet_mask_matrix' in self.file else None
         
         self.layer_idxs = np.sort([int(l) for l in list(self.file['layers'].keys())])
         self.layers = []
@@ -62,15 +75,17 @@ class ModeSummary:
             layer_data = self.file['layers'][layer_key]
 
             corr_mtx = layer_data['corr_mtx'][:]
+            imgnet_corr_mtx = layer_data['imgnet_corr_mtx'][:] 
             corr_mtx=corr_mtx.T
+            imgnet_corr_mtx=imgnet_corr_mtx.T
             loadings = layer_data['loadings'][:]
             dictionary = layer_data['dictionary'][:]
             aggregated_data = layer_data['data_agg'][:] if 'data' in layer_data else None
             aggregated_reconstruction = layer_data['reconstructed_agg'][:] 
 
-            r2 = layer_data['r2'][()] if 'r2' in layer_data else None
+            r2 = layer_data.attrs['r2'][()] if 'r2' in layer_data.attrs else None
             
-            self.layers.append(LayerSummary(corr_mtx, loadings, dictionary, layer_idx, r2, aggregated_data, aggregated_reconstruction))
+            self.layers.append(LayerSummary(corr_mtx, imgnet_corr_mtx, loadings, dictionary, layer_idx, r2, aggregated_data, aggregated_reconstruction))
 
 
 

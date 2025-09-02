@@ -278,6 +278,7 @@ class SemanticAnalyzer:
         mask_array = np.array(masks)
 
         return mask_array, node_names
+
     def get_all_imagenet_masks(self, target_indices):
         """
         Create masks for the 1000 ImageNet classes, using the most specific class name for each index.

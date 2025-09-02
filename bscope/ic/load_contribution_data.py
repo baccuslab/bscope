@@ -30,31 +30,3 @@ def load_contribution_data(file_path, data_type, layer=0, sign='concat', norm=Tr
 
     return data, targets
 
-def load_contribution_data_old(file_path, data_type, layer=0, sign='concat', norm=True):
-
-    layer = str(layer)  # Ensure layer is a string
-
-    file = h5.File(file_path, 'r')
-    targets= file['targets'][:]
-    data = file[layer][data_type]
-
-    if sign == 'concat':
-        negative = data['neg'][:]
-        positive = data['pos'][:]
-
-        data = np.concatenate((positive, negative), axis=1)
-
-    elif sign == 'sum':
-        data = data['neg'][:] + data['pos'][:]
-        
-
-    elif sign == 'positive':
-        data = data['pos'][:]
-
-    elif sign == 'negative':
-        data = data['neg'][:]
-    
-    if norm:
-        data = data / np.std(data)
-
-    return data, targets
