@@ -95,7 +95,7 @@ class Encoder(nn.Module):
         self.layers = nn.ModuleDict()
         # self.layers['layernorm1'] = nn.LayerNorm(data_dim, elementwise_affine=True)
         self.layers['layer1'] = nn.Linear(data_dim, self.mlp_hidden_dim, bias=True)
-        self.layers['layernorm1'] = nn.LayerNorm(self.mlp_hidden_dim, elementwise_affine=True)
+        # self.layers['layernorm1'] = nn.LayerNorm(self.mlp_hidden_dim, elementwise_affine=True)
         self.layers['dropout1'] = nn.Dropout(p=0.05)  # Add dropout layer with p=0.2
         self.layers['relu1'] = nn.ReLU()# Add sigmoid activation
 
@@ -129,13 +129,13 @@ class DefaultEncoder(nn.Module):
         # self.layers['layernorm1'] = nn.LayerNorm(self.mlp_hidden_dim, elementwise_affine=True)
         self.layers['dropout1'] = nn.Dropout(p=0.05)  # Add dropout layer with p=0.2
         self.layers['relu1'] = nn.ReLU()# Add sigmoid activation
-        self.layers['layernorm1'] = nn.LayerNorm(self.mlp_hidden_dim, elementwise_affine=True)
+        # self.layers['layernorm1'] = nn.LayerNorm(self.mlp_hidden_dim, elementwise_affine=True)
 
         self.layers['layer2'] = nn.Linear(self.mlp_hidden_dim, self.mlp_hidden_dim, bias=True)
         # self.layers['layernorm2'] = nn.LayerNorm(self.mlp_hidden_dim, elementwise_affine=True)
         self.layers['dropout2'] = nn.Dropout(p=0.05)  # Add dropout layer with p=0.2
         self.layers['relu2'] = nn.ReLU()  # Add ReLU activation
-        self.layers['layernorm2'] = nn.LayerNorm(self.mlp_hidden_dim, elementwise_affine=True)
+        # self.layers['layernorm2'] = nn.LayerNorm(self.mlp_hidden_dim, elementwise_affine=True)
 
         self.layers['layer3'] = nn.Linear(self.mlp_hidden_dim, num_atoms, bias=False)
         self.layers['sigmoid'] = nn.Sigmoid()  # Add sigmoid activation

@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 from IPython import embed
 from .custom_dataset import CustomImageNetDataset
 
-def get_model(which_model, return_layers=False, imagenet_path='/data/codec/imagenet', device='cuda', subsample=None,subclasses=None,dataloader_only=False,**kwargs):
+def get_model(which_model, return_layers=False, imagenet_path='/mnt/data/imagenet', device='cuda', subsample=None,subclasses=None,dataloader_only=False,**kwargs):
     
     if which_model == 'resnet50':
         weights = ResNet50_Weights.IMAGENET1K_V1

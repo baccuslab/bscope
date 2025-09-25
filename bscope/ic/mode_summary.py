@@ -202,7 +202,7 @@ class ModeAnalyzer:
         correlations = layer.corr_mtx[:, concept_idx]
         
         # Use select_significant_indices to get top modes
-        modes = bscope.select_significant_indices(
+        modes = select_significant_indices(
             correlations, 
             method=method, 
             param=param, 
@@ -257,7 +257,7 @@ class ModeAnalyzer:
 
             
             # Get top channels for this atom
-            top_channels = bscope.select_significant_indices( 
+            top_channels = select_significant_indices( 
                 atom,
                 method=channel_method,
                 param=channel_param,
@@ -376,7 +376,7 @@ class ModeAnalyzer:
         results = []
         
         # Get all concepts to check
-        syn = bic.SemanticAnalyzer('/data/codec/hierarchy_metadata/misc/semantic_indexes_test.json')
+        syn = bic.SemanticAnalyzer('/home/zalaoui/semantic_indexes_test.json')
         _, imagenet_class_names = syn.get_all_imagenet_masks(list(range(1000)))
         
         for concept_label in imagenet_class_names:
@@ -454,6 +454,9 @@ class ModeAnalyzer:
         print("=" * 80)
         
         for i, (concept, shared_count, overlap_ratio, shared_channels) in enumerate(results[:top_n]):
+            if concept == 'black_grouse':
+                print("HOLY BLACK GROUSE👀👀👀")
+
             print(f"{i+1:2d}. {concept:20s} | "
                   f"Shared: {shared_count:2d} | "
                   f"Overlap: {overlap_ratio:.1%}")
@@ -478,7 +481,8 @@ class ModeAnalyzer:
             # Remove seed_top_n_channels parameter
             channel_method: str = 'std',  # Add these parameters to be consistent
             channel_param: float = 2.0,
-            concat=False    # with find_similar_concepts_by_channels
+            concat=False,    # with find_similar_concepts_by_channels,
+            text=False 
         ):
         """
         Plot seed concept's top mode and similar concepts' top modes with shared channels highlighted.
@@ -549,14 +553,15 @@ class ModeAnalyzer:
         ax.set_title(f'SEED: {seed_concept} (mode {seed_mode_idx}, corr={seed_correlations[seed_mode_idx]:.3f})', 
                     fontsize=8, fontweight='bold', color='blue')
         ax.set_ylabel('Activation', fontsize=12)
+
+        if text:
         
-        # Highlight seed's top channels in blue
-        for ch in seed_top_channels_set:
-            ax.axvline(x=ch, color='blue', linestyle='-', alpha=0.2, linewidth=1.5)
-        
-        ax.text(0.02, 0.95, f'{len(seed_top_channels_set)} top channels', 
-                transform=ax.transAxes, va='top', fontsize=10, 
-                bbox=dict(boxstyle="round,pad=0.3", facecolor="lightblue", alpha=0.3))
+            for ch in seed_top_channels_set:
+                ax.axvline(x=ch, color='blue', linestyle='-', alpha=0.2, linewidth=1.5)
+            
+            ax.text(0.02, 0.95, f'{len(seed_top_channels_set)} top channels', 
+                    transform=ax.transAxes, va='top', fontsize=10, 
+                    bbox=dict(boxstyle="round,pad=0.3", facecolor="lightblue", alpha=0.3))
         
         # 2. Plot SIMILAR CONCEPTS
         for i, (concept_name, shared_count, overlap_ratio, shared_channels) in enumerate(display_results):
@@ -589,20 +594,22 @@ class ModeAnalyzer:
                             f'Shared: {shared_count}/{len(seed_top_channels_set)} ({overlap_ratio:.1%})', 
                             fontsize=8)
                 ax.set_ylabel('Activation', fontsize=8)
+
+                if text:
                 
-                # Highlight shared channels in RED
-                for ch in shared_channels:
-                    ax.axvline(x=ch, color='red', linestyle='-', alpha=0.2, linewidth=2)
-                
-                # Highlight seed's non-shared top channels in light blue
-                non_shared_seed_channels = seed_top_channels_set - set(shared_channels)
-                for ch in non_shared_seed_channels:
-                    ax.axvline(x=ch, color='lightblue', linestyle='--', alpha=0.4, linewidth=1)
-                
-                # Add legend info
-                ax.text(0.02, 0.95, f'{len(shared_channels)} shared channels', 
-                        transform=ax.transAxes, va='top', fontsize=10,
-                        bbox=dict(boxstyle="round,pad=0.3", facecolor="lightcoral", alpha=0.7))
+                    # Highlight shared channels in RED
+                    for ch in shared_channels:
+                        ax.axvline(x=ch, color='red', linestyle='-', alpha=0.2, linewidth=2)
+                    
+                    # Highlight seed's non-shared top channels in light blue
+                    non_shared_seed_channels = seed_top_channels_set - set(shared_channels)
+                    for ch in non_shared_seed_channels:
+                        ax.axvline(x=ch, color='lightblue', linestyle='--', alpha=0.4, linewidth=1)
+                    
+                    # Add legend info
+                    ax.text(0.02, 0.95, f'{len(shared_channels)} shared channels', 
+                            transform=ax.transAxes, va='top', fontsize=10,
+                            bbox=dict(boxstyle="round,pad=0.3", facecolor="lightcoral", alpha=0.7))
                 
             except Exception as e:
                 ax.text(0.5, 0.5, f'Error loading {concept_name}:\n{str(e)}', 
@@ -621,14 +628,15 @@ class ModeAnalyzer:
                     fontsize=8, fontweight='bold')
         
         # Create legend
-        from matplotlib.lines import Line2D
-        legend_elements = [
-            Line2D([0], [0], color='blue', lw=2, label=f'{seed_concept} top channels'),
-            Line2D([0], [0], color='red', lw=2, label='Shared channels'),
-            Line2D([0], [0], color='lightblue', lw=1, linestyle='--', alpha=0.6, 
-                label=f'{seed_concept} non-shared channels')
-        ]
-        fig.legend(handles=legend_elements, loc='upper right', bbox_to_anchor=(0.98, 0.98))
+        if text:
+            from matplotlib.lines import Line2D
+            legend_elements = [
+                Line2D([0], [0], color='blue', lw=2, label=f'{seed_concept} top channels'),
+                Line2D([0], [0], color='red', lw=2, label='Shared channels'),
+                Line2D([0], [0], color='lightblue', lw=1, linestyle='--', alpha=0.6, 
+                    label=f'{seed_concept} non-shared channels')
+            ]
+            fig.legend(handles=legend_elements, loc='upper right', bbox_to_anchor=(0.98, 0.98))
         
         plt.tight_layout()
         plt.subplots_adjust(top=0.92)  # Make room for suptitle and legend
@@ -867,7 +875,165 @@ class ModeAnalyzer:
             if concept != seed:
                 print(f"   {concept}: {channels}")
 
+def select_significant_indices(vector, method='threshold', param=0.8, min_indices=1, max_indices=None):
+    """
+    Select indices that contribute most to the overall sum of the vector.
+    
+    Parameters:
+    -----------
+    vector : array-like
+        Input vector of values
+    method : str, optional (default='threshold')
+        Method to use for selecting indices:
+        - 'threshold': Select indices that contribute to param (e.g. 0.8) of the total sum
+        - 'percentile': Select indices above the param (e.g. 90th) percentile
+        - 'top_n': Select the top param (e.g. 10) indices by value
+        - 'kmeans': Use k-means clustering to separate significant from non-significant values
+        - 'otsu': Use Otsu's thresholding method (common in image processing)
+    param : float or int, optional
+        Parameter specific to the chosen method
+    min_indices : int, optional (default=1)
+        Minimum number of indices to return
+    max_indices : int, optional (default=None)
+        Maximum number of indices to return
         
+    Returns:
+    --------
+    significant_indices : numpy.ndarray
+        Array of indices that contribute most to the total sum
+    """
+    vector = np.asarray(vector)
+    n = len(vector)
+    
+    if max_indices is None:
+        max_indices = n
+    
+    # Handle edge cases
+    if n == 0:
+        return np.array([], dtype=int)
+    
+    if method == 'threshold':
+        # Sort indices by their values in descending order
+        sorted_indices = np.argsort(-vector)
+        cumsum = np.cumsum(vector[sorted_indices])
+        total_sum = cumsum[-1]
+        
+        # Find how many indices we need to reach the threshold
+        if total_sum == 0:  # Handle zero-sum case
+            return np.array([0], dtype=int)
+        
+        # Find indices that contribute to param (e.g. 80%) of the total sum
+        threshold_idx = np.searchsorted(cumsum / total_sum, param)
+        threshold_idx = max(min_indices, min(threshold_idx + 1, max_indices))
+        return sorted_indices[:threshold_idx]
+    
+    elif method == 'percentile':
+        # Select indices above a certain percentile
+        threshold = np.percentile(vector, 100 - param)
+        significant_indices = np.where(vector >= threshold)[0]
+        
+        # Adjust if we have too few or too many indices
+        if len(significant_indices) < min_indices:
+            sorted_indices = np.argsort(-vector)
+            significant_indices = sorted_indices[:min_indices]
+        elif len(significant_indices) > max_indices:
+            sorted_significant = sorted(significant_indices, key=lambda i: -vector[i])
+            significant_indices = np.array(sorted_significant[:max_indices])
+            
+        return significant_indices
+    
+    elif method == 'top_n':
+        # Select the top N indices
+        n_indices = min(max(min_indices, int(param)), max_indices)
+        return np.argsort(-vector)[:n_indices]
+    
+    elif method == 'kmeans':
+        # Use k-means to separate significant from non-significant values
+        from sklearn.cluster import KMeans
+        
+        # Reshape for k-means
+        X = vector.reshape(-1, 1)
+        
+        # Try to estimate the optimal number of clusters if not specified
+        if param == 0:
+            from sklearn.metrics import silhouette_score
+            scores = []
+            for k in range(2, min(10, n)):
+                kmeans = KMeans(n_clusters=k, random_state=42).fit(X)
+                score = silhouette_score(X, kmeans.labels_)
+                scores.append(score)
+            param = np.argmax(scores) + 2  # Add 2 because we started from k=2
+        
+        # Apply k-means clustering
+        kmeans = KMeans(n_clusters=int(param), random_state=42).fit(X)
+        
+        # Get the cluster with the highest mean value
+        cluster_means = [np.mean(vector[kmeans.labels_ == i]) for i in range(int(param))]
+        top_cluster = np.argmax(cluster_means)
+        
+        # Get indices belonging to the top cluster
+        significant_indices = np.where(kmeans.labels_ == top_cluster)[0]
+        
+        # Sort by value within the cluster and apply min/max constraints
+        significant_indices = sorted(significant_indices, key=lambda i: -vector[i])
+        significant_indices = np.array(significant_indices[:max_indices])
+        
+        if len(significant_indices) < min_indices:
+            sorted_indices = np.argsort(-vector)
+            missing = min_indices - len(significant_indices)
+            extra_indices = [i for i in sorted_indices if i not in significant_indices][:missing]
+            significant_indices = np.append(significant_indices, extra_indices)
+            
+        return significant_indices
+    
+    elif method == 'otsu':
+        # Otsu's method to find optimal threshold
+        # Normalize to 0-255 range for Otsu's algorithm
+        if np.max(vector) == np.min(vector):
+            # Handle constant vectors
+            return np.array([0], dtype=int)
+            
+        normalized = ((vector - np.min(vector)) / (np.max(vector) - np.min(vector)) * 255).astype(np.uint8)
+        threshold = signal.threshold_otsu(normalized)
+        
+        # Convert back to original scale
+        original_threshold = threshold / 255 * (np.max(vector) - np.min(vector)) + np.min(vector)
+        significant_indices = np.where(vector >= original_threshold)[0]
+        
+        # Apply min/max constraints
+        if len(significant_indices) < min_indices:
+            sorted_indices = np.argsort(-vector)
+            significant_indices = sorted_indices[:min_indices]
+        elif len(significant_indices) > max_indices:
+            sorted_significant = sorted(significant_indices, key=lambda i: -vector[i])
+            significant_indices = np.array(sorted_significant[:max_indices])
+            
+        return significant_indices
+    elif method == 'std':
+    # Select indices above param standard deviations from the mean
+        mean_val = np.mean(vector)
+        std_val = np.std(vector)
+        
+        if std_val == 0:  # Handle constant vectors
+            sorted_indices = np.argsort(-vector)
+            return sorted_indices[:min_indices]
+        
+        threshold = mean_val + param * std_val
+        significant_indices = np.where(vector >= threshold)[0]
+        
+        # Adjust if we have too few or too many indices
+        if len(significant_indices) < min_indices:
+            sorted_indices = np.argsort(-vector)
+            significant_indices = sorted_indices[:min_indices]
+        elif len(significant_indices) > max_indices:
+            sorted_significant = sorted(significant_indices, key=lambda i: -vector[i])
+            significant_indices = np.array(sorted_significant[:max_indices])
+            
+        return significant_indices
+    
+    else:
+        raise ValueError(f"Unknown method: {method}")
+   
 
 # Add these methods to your ModeAnalyzer class by copying them in
 

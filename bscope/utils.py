@@ -1,6 +1,9 @@
 import numpy as np
 import torch
 import matplotlib as mpl
+import bscope
+import bscope.ic as bic
+from scipy import signal
 Epsilon = 1e-6
 
 
