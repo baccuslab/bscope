@@ -1,9 +1,25 @@
 import numpy as np
+from scipy import integrate, signal
 import torch
 import matplotlib as mpl
 Epsilon = 1e-6
 
 
+def sort_data(x, y):
+    sorted_indices = np.argsort(x)
+    return np.array(x)[sorted_indices], np.array(y)[sorted_indices]
+def compute_auc(percentages, accuracies, method='trapz'):
+    x,y = sort_data(percentages, accuracies)
+    
+    if method == 'trapz':
+        # Trapezoidal rule - most common and robust
+        auc = np.trapz(y, x)
+        
+    elif method == 'simps':
+        # Simpson's rule - more accurate for smooth curves
+        auc = integrate.simps(y, x)
+        
+    return auc
 def select_significant_indices(vector, method='threshold', param=0.8, min_indices=1, max_indices=None):
     """
     Select indices that contribute most to the overall sum of the vector.

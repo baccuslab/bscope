@@ -74,9 +74,10 @@ class Scope:
     def use_jacobians(self):
         self.contribution_type = 'jacobians'
 
-    def wrt_entropy(self):
+    def wrt_entropy(self, softmax=True):
         self.contribution_target = 'entropy'
-        self.softmax = True
+
+        self.softmax=softmax
 
     def wrt_output_neuron(self, neuron_index=0, softmax=False):
         self.contribution_target = 'output_neuron'
@@ -305,9 +306,9 @@ class Scope:
                         c = c.sum((2, 3))
 
                     if 'patch_ei_split' in self.reduction:
-                        g = ei_split(g, patch=True)
-                        a = ei_split(a, patch=True)
-                        c = ei_split(c, patch=True)
+                        g = ei_split(g, dim=-1)
+                        a = ei_split(a, dim=-1)
+                        c = ei_split(c, dim=-1)
 
                     if 'patch_sum' in self.reduction:
                         g = g.sum(1)

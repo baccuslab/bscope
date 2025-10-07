@@ -21,9 +21,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy import signal
 
-def get_top_mode(mode_summary, layer, class_idx, num_modes=1):
+def get_top_mode(mode_summary, layer, class_idx, which_mode=1):
     corrs = mode_summary.layers[layer].imgnet_corr_mtx
-    top_mode = np.argsort(corrs[:, class_idx])[-num_modes:]
+    top_mode = np.argsort(corrs[:, class_idx])[-which_mode]
     
     atom = mode_summary.layers[layer].dictionary[top_mode]
     loadings = mode_summary.layers[layer].loadings[:, top_mode]
@@ -37,7 +37,7 @@ def load_hierarchy(path='/data/hierarchy_metadata/pruned_hierarchy.json'):
     with open(path, 'r') as f:
         return json.load(f)
 
-def get_masks(path='/data/hierarchy_metadata/pruned_hierarchy.json', target_indices=None, leaf_only=False, targets=None):
+def get_masks(path='/data/hierarchy_metadata/pruned_hierarchy.json', leaf_only=False, targets=None):
     if targets is None:
         targets = []
         for i in range(1000):
