@@ -343,6 +343,8 @@ class Scope:
                 self.log_activations[layer].append(a)
                 self.log_contributions[layer].append(c)
 
+        return y
+
 
 def corrupt_stim(stim, sigma=0.03, steps=10):
     """
