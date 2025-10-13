@@ -89,6 +89,16 @@ class Scope:
         self.k = k
         self.softmax = softmax
 
+    def wrt_surprisal(self, softmax=False):
+        self.contribution_target = 'surprisal'
+        self.surprisal_mu = None
+        self.surprisal_sigma_inv = None
+        self.softmax = softmax  # Raw neural outputs
+
+    def set_surprisal_stats(self, mu, sigma_inv):
+        self.surprisal_mu = mu
+        self.surprisal_sigma_inv = sigma_inv
+
     def log_start(self, reduction=None):
         self.logging = True
 
@@ -121,6 +131,20 @@ class Scope:
 
             sorted, indices = torch.topk(y, self.k, dim=-1)
             sorted.sum().backward()
+
+        elif self.contribution_target == 'surprisal':
+            if self.surprisal_mu is None or self.surprisal_sigma_inv is None:
+                raise ValueError("Surprisal statistics not set. Call set_surprisal_stats() first.")
+        
+            # Convert numpy arrays to tensors on the right device
+            mu_tensor = torch.from_numpy(self.surprisal_mu).to(y.device).float()
+            sigma_inv_tensor = torch.from_numpy(self.surprisal_sigma_inv).to(y.device).float()
+        
+            # Compute (y - μ)ᵀ Σ⁻¹ (y - μ)
+            centered = y - mu_tensor  # [batch_size, n_neurons]
+            surprisal = 0.5 * torch.sum((centered @ sigma_inv_tensor) * centered, dim=1)  # [batch_size]
+            surprisal.sum().backward()
+
 
         else:
             raise ValueError(f"Unknown contribution target: {target}")
