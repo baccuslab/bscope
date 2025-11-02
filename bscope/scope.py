@@ -9,6 +9,28 @@ import torch
 
 import numpy as np
 
+def torch_normalize_batch_across_cyx(array):
+    # array shape: [B, C, Y, X]
+    
+    # Get batch size
+    b_size = array.shape[0]
+    
+    # Reshape to [B, C*Y*X] to compute norm across all C, Y, X dimensions
+    reshaped = array.reshape(b_size, -1)
+    
+    # Compute the norm for each batch item
+    norms = torch.norm(reshaped, dim=1, keepdim=True)
+    
+    # Avoid division by zero
+    norms = torch.clamp(norms, min=1e-8)
+    
+    # Normalize each batch item
+    normalized_reshaped = reshaped / norms
+    
+    # Reshape back to original shape
+    normalized = normalized_reshaped.reshape(array.shape)
+    
+    return normalized
 def normalize_batch_across_cyx(array):
     # array shape: [B, C, Y, X]
     
@@ -39,12 +61,13 @@ class Scope:
     log_X is the logging of X
     """
 
-    def __init__(self, model, layer_list):
+    def __init__(self, model, layer_list, to_numpy=True):
         model.eval()
         self.model = model
         self.layer_list = layer_list
-
-        self.inspector = Inspector(layer_list)
+        
+        self.to_numpy = to_numpy
+        self.inspector = Inspector(layer_list, to_numpy=to_numpy)
         self.num_layers = len(layer_list)
 
         self.reduction = None
@@ -89,6 +112,10 @@ class Scope:
         self.k = k
         self.softmax = softmax
 
+    def wrt_sum(self, softmax=False):
+        self.softmax = softmax
+        self.contribution_target = 'sum'
+
     def wrt_surprisal(self, softmax=False):
         self.contribution_target = 'surprisal'
         self.surprisal_mu = None
@@ -132,6 +159,9 @@ class Scope:
             sorted, indices = torch.topk(y, self.k, dim=-1)
             sorted.sum().backward()
 
+        elif self.contribution_target == 'sum':
+            y.sum().backward()
+
         elif self.contribution_target == 'surprisal':
             if self.surprisal_mu is None or self.surprisal_sigma_inv is None:
                 raise ValueError("Surprisal statistics not set. Call set_surprisal_stats() first.")
@@ -166,7 +196,7 @@ class Scope:
             self.stim = corrupt_stim(input_tensor, self.sigma, self.steps)
         elif self.contribution_type == 'act_normgrad' or self.contribution_type == 'normact_normgrad' or self.contribution_type == 'jacobians' or self.contribution_type == 'act_grad':
             self.stim = input_tensor.unsqueeze(0)
-            self.stim.requires_grad = True
+            # self.stim.requires_grad = True
             self.steps = 0
 
         else:
@@ -200,20 +230,30 @@ class Scope:
             ]
 
         self.last_activations = [
-            np.array(self.last_activations[i]) for i in range(self.num_layers)
+            self.last_activations[i] for i in range(self.num_layers)
         ]
 
         self.last_gradients = [
-            np.array(self.last_gradients[i]) for i in range(self.num_layers)
+            self.last_gradients[i] for i in range(self.num_layers)
         ]
+
+        if self.to_numpy:
+            self.last_activations = [np.array(self.last_activations[i]) for i in range(self.num_layers)]
+            self.last_gradients = [np.array(self.last_gradients[i]) for i in range(self.num_layers)]
         
         if self.contribution_type == 'act_normgrad':
             contributions = []
             for layer in range(self.num_layers):
                 act = self.last_activations[layer][0]
-                grad = self.last_gradients[layer][0]
-                norm_grad = normalize_batch_across_cyx(grad)
-                contributions.append(np.array(act * norm_grad))
+
+                if self.to_numpy:
+                    grad = self.last_gradients[layer][0]
+                    norm_grad = normalize_batch_across_cyx(grad)
+                    contributions.append(np.array(act * norm_grad))
+                else:
+                    grad = self.last_gradients[layer][0]
+                    norm_grad = torch_normalize_batch_across_cyx(grad)
+                    contributions.append(act * norm_grad)
             self.activations = [
                 self.last_activations[layer][0]
                 for layer in range(self.num_layers)
@@ -228,9 +268,16 @@ class Scope:
             for layer in range(self.num_layers):
                 act = self.last_activations[layer][0]
                 grad = self.last_gradients[layer][0]
-                norm_act = normalize_batch_across_cyx(act)
-                norm_grad = normalize_batch_across_cyx(grad)
-                contributions.append(np.array(norm_act* norm_grad))
+
+
+                if self.to_numpy:
+                    contributions.append(np.array(norm_act* norm_grad))
+                    norm_act = normalize_batch_across_cyx(act)
+                    norm_grad = normalize_batch_across_cyx(grad)
+                else:
+                    contributions.append(norm_act* norm_grad)
+                    norm_act = torch_normalize_batch_across_cyx(act)
+                    norm_grad = torch_normalize_batch_across_cyx(grad)
 
             self.activations = [
                 self.last_activations[layer][0]
@@ -246,7 +293,11 @@ class Scope:
             for layer in range(self.num_layers):
                 act = self.last_activations[layer][0]
                 grad = self.last_gradients[layer][0]
-                contributions.append(np.array(act * grad))
+
+                if self.to_numpy:
+                    contributions.append(np.array(act * grad))
+                else:
+                    contributions.append(act * grad)
 
             self.activations = [
                 self.last_activations[layer][0]
@@ -261,10 +312,16 @@ class Scope:
             for layer in range(self.num_layers):
                 interp_activations = self.last_activations[layer]
                 interp_gradients = self.last_gradients[layer]
-                contributions.append(
-                    np.array(
-                        interneuron_integral_approximation(
-                            interp_activations, interp_gradients)))
+
+                if self.to_numpy:
+                    contributions.append(
+                        np.array(
+                            interneuron_integral_approximation(
+                                interp_activations, interp_gradients)))
+                else:
+                    contributions.append(
+                        torch_interneuron_integral_approximation(
+                            interp_activations, interp_gradients))
 
             self.activations = [
                 self.last_activations[layer][-1]
@@ -378,6 +435,30 @@ def interpolate_stim(stim, steps=10):
     return interp_stim
 
 
+def torch_interneuron_integral_approximation(acts, grads):
+    """
+    Trapezoidal integral approximation for integrated gradients.
+    """
+    igs = []
+    for i, (a, g) in enumerate(zip(acts, grads)):
+        if i == 0:
+            last_act = a
+            continue
+
+        diff_act = a - last_act
+        last_act = a
+
+        trapezoidal = grads[i - 1] + grads[i]
+
+        trapezoidal /= 2
+
+        ig = trapezoidal * diff_act
+        igs.append(ig)
+    
+    igs = torch.stack(igs)
+    igs = torch.sum(igs, axis=0)
+
+    return igs
 def interneuron_integral_approximation(acts, grads):
     """
     Trapezoidal integral approximation for integrated gradients.

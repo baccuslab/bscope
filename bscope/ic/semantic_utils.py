@@ -23,11 +23,30 @@ from scipy import signal
 
 def get_top_mode(mode_summary, layer, class_idx, which_mode=1):
     corrs = mode_summary.layers[layer].imgnet_corr_mtx
-    top_mode = np.argsort(corrs[:, class_idx])[-which_mode]
+    top_mode = np.argsort(corrs[:, class_idx])[::-1]
+    top_mode = top_mode[which_mode]
     
     atom = mode_summary.layers[layer].dictionary[top_mode]
     loadings = mode_summary.layers[layer].loadings[:, top_mode]
-    return top_mode, atom, loadings
+    corr = corrs[top_mode, class_idx]
+    return top_mode, atom, loadings, corr
+
+def single_image_semantic_loading(mode_summary, layer, image_idx):
+    corrs = mode_summary.layers[layer].imgnet_corr_mtx
+    loadings = mode_summary.layers[layer].loadings[image_idx]
+    loading_idxs = np.where(loadings > 0.5)[0]
+    imagenet_labels = mode_summary.imgnet_mask_labels
+    labels = []
+    for loading_idx in loading_idxs: 
+        # Classes
+        corr = corrs[loading_idx,:]
+        top_classes = np.argsort(corr)[::-1]
+        top_class = top_classes[0]
+        imagenet_label = imagenet_labels[top_class]
+        labels.append(imagenet_label)
+
+
+    return loadings, loading_idxs, labels
 
 def top_n(vector, n=5):
     idxs = np.argsort(vector)[-n:][::-1]
