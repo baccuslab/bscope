@@ -9,6 +9,28 @@ import torch
 
 import numpy as np
 
+def torch_normalize_batch_across_cyx(array):
+    # array shape: [B, C, Y, X]
+    
+    # Get batch size
+    b_size = array.shape[0]
+    
+    # Reshape to [B, C*Y*X] to compute norm across all C, Y, X dimensions
+    reshaped = array.reshape(b_size, -1)
+    
+    # Compute the norm for each batch item
+    norms = torch.norm(reshaped, dim=1, keepdim=True)
+    
+    # Avoid division by zero
+    norms = torch.clamp(norms, min=1e-8)
+    
+    # Normalize each batch item
+    normalized_reshaped = reshaped / norms
+    
+    # Reshape back to original shape
+    normalized = normalized_reshaped.reshape(array.shape)
+    
+    return normalized
 def normalize_batch_across_cyx(array):
     # array shape: [B, C, Y, X]
     
@@ -39,12 +61,13 @@ class Scope:
     log_X is the logging of X
     """
 
-    def __init__(self, model, layer_list):
+    def __init__(self, model, layer_list, to_numpy=True):
         model.eval()
         self.model = model
         self.layer_list = layer_list
-
-        self.inspector = Inspector(layer_list)
+        
+        self.to_numpy = to_numpy
+        self.inspector = Inspector(layer_list, to_numpy=to_numpy)
         self.num_layers = len(layer_list)
 
         self.reduction = None
@@ -67,10 +90,6 @@ class Scope:
     
     def use_act_normgrad(self):
         self.contribution_type='act_normgrad'
-        
-    def use_input_int_grad(self, steps=20):
-        self.contribution_type = 'input_int_grad'
-        self.steps = steps
 
     def use_normact_normgrad(self):
         self.contribution_type='normact_normgrad'
@@ -78,23 +97,19 @@ class Scope:
     def use_jacobians(self):
         self.contribution_type = 'jacobians'
 
-    def wrt_entropy(self):
+    def wrt_entropy(self, softmax=True):
         self.contribution_target = 'entropy'
-        self.softmax = True
-    
-    def wrt_firing_rate_sum(self, target_neurons=None, softmax=False):
-        self.contribution_target = 'firing_rate_sum'
-        self.target_neurons = target_neurons  # None = sum all neurons
-        self.softmax = softmax
+
+        self.softmax=softmax
 
     def wrt_output_neuron(self, neuron_index=0, softmax=False):
         self.contribution_target = 'output_neuron'
         self.neuron_index = neuron_index
         self.softmax = softmax
 
-    def wrt_topk(self, k=5, softmax=True):
-        self.contribution_target = 'topk'
-        self.k = k
+    def wrt_firing_rate_sum(self, target_neurons=None, softmax=False):
+        self.contribution_target = 'firing_rate_sum'
+        self.target_neurons = target_neurons 
         self.softmax = softmax
 
     def wrt_surprisal(self, softmax=False):
@@ -107,12 +122,26 @@ class Scope:
         self.surprisal_mu = mu
         self.surprisal_sigma_inv = sigma_inv
 
+    def wrt_topk(self, k=5, softmax=True):
+        self.contribution_target = 'topk'
+        self.k = k
+        self.softmax = softmax
+
+    def wrt_sum(self, softmax=False):
+        self.softmax = softmax
+        self.contribution_target = 'sum'
+
+    def wrt_contrastive_top2(self, softmax=True):
+        self.contribution_target = 'contrastive_top2'
+        self.softmax = softmax
+
     def log_start(self, reduction=None):
         self.logging = True
 
         self.log_gradients = [[] for i in range(self.num_layers)]
         self.log_activations = [[] for i in range(self.num_layers)]
         self.log_contributions = [[] for i in range(self.num_layers)]
+
         self.log_outputs = []
 
         self.reduction = reduction
@@ -121,7 +150,8 @@ class Scope:
         for i in range(self.num_layers):
             self.log_gradients[i] = np.concatenate(self.log_gradients[i])
             self.log_activations[i] = np.concatenate(self.log_activations[i])
-            self.log_contributions[i] = np.concatenate(self.log_contributions[i])
+            self.log_contributions[i] = np.concatenate(
+                self.log_contributions[i])
 
         self.logging = False
 
@@ -138,12 +168,8 @@ class Scope:
             sorted, indices = torch.topk(y, self.k, dim=-1)
             sorted.sum().backward()
 
-        elif self.contribution_target == 'firing_rate_sum':
-            if self.target_neurons is not None:
-                target_output = y[:, self.target_neurons].sum()
-            else:
-                target_output = y.sum() 
-            target_output.backward()  
+        elif self.contribution_target == 'sum':
+            y.sum().backward()
 
         elif self.contribution_target == 'surprisal':
             if self.surprisal_mu is None or self.surprisal_sigma_inv is None:
@@ -158,6 +184,15 @@ class Scope:
             surprisal = 0.5 * torch.sum((centered @ sigma_inv_tensor) * centered, dim=1)  # [batch_size]
             surprisal.sum().backward()
 
+        elif self.contribution_target == 'contrastive_top2':
+            top2_values, top2_indices = torch.topk(y, 2, dim=-1)
+            
+            # Compute difference: top-1 minus top-2
+            contrastive_score = top2_values[:, 0] - top2_values[:, 1]
+            
+            # Backward through the difference
+            contrastive_score.sum().backward()
+            
         else:
             raise ValueError(f"Unknown contribution target: {self.contribution_target}")
 
@@ -173,15 +208,14 @@ class Scope:
 
         # Prepare the stimulus
         if self.contribution_type == 'int_grad':
-            stim = interpolate_stim(input_tensor, self.steps)
+            self.stim = interpolate_stim(input_tensor, self.steps)
         elif self.contribution_type == 'smooth_grad':
-            stim = corrupt_stim(input_tensor, self.sigma, self.steps)
+            self.stim = corrupt_stim(input_tensor, self.sigma, self.steps)
         elif self.contribution_type == 'act_normgrad' or self.contribution_type == 'normact_normgrad' or self.contribution_type == 'jacobians' or self.contribution_type == 'act_grad':
-            stim = input_tensor.unsqueeze(0)
-            stim.requires_grad = True
-            self.steps = 1
-        elif self.contribution_type == 'input_int_grad':
-            stim = interpolate_stim(input_tensor, self.steps)  # Same as int_grad
+            self.stim = input_tensor.unsqueeze(0)
+            # self.stim.requires_grad = True
+            self.steps = 0
+
         else:
             raise ValueError(
                 f"Unknown contribution type: {self.contribution_type}")
@@ -189,32 +223,19 @@ class Scope:
         self.last_activations = [[] for i in range(self.num_layers)]
         self.last_gradients = [[] for i in range(self.num_layers)]
         self.last_outputs = []
-        self.input_gradients = []
-        self.input_activations = []
 
-        for step in range(self.steps):
-            
+        for step in range(self.steps+1):
             self.model.zero_grad()
             # get device of the model
             device = next(self.model.parameters()).device
-            current_stim = stim[step].to(device)  # Store it
-            current_stim.requires_grad = True  # Make sure it requires grad
-            y = self.model(stim[step].to(device))
-            if self.contribution_type == 'input_int_grad':
-                y = self.model(current_stim)  # CORRECT - use the same tensor
+            y = self.model(self.stim[step].to(device))
 
             if self.softmax:
                 y = torch.softmax(y, dim=-1)
 
             self.backward_pass(y)
 
-            if self.contribution_type == 'input_int_grad':
-                if current_stim.grad is not None:
-                    self.input_gradients.append(current_stim.grad.detach().cpu().numpy())
-                    self.input_activations.append(current_stim.detach().cpu().numpy())
-
             self.last_outputs.append(y.detach().cpu().numpy())
-
 
             [
                 self.last_activations[i].append(self.inspector.activations[i])
@@ -226,20 +247,30 @@ class Scope:
             ]
 
         self.last_activations = [
-            np.array(self.last_activations[i]) for i in range(self.num_layers)
+            self.last_activations[i] for i in range(self.num_layers)
         ]
 
         self.last_gradients = [
-            np.array(self.last_gradients[i]) for i in range(self.num_layers)
+            self.last_gradients[i] for i in range(self.num_layers)
         ]
+
+        if self.to_numpy:
+            self.last_activations = [np.array(self.last_activations[i]) for i in range(self.num_layers)]
+            self.last_gradients = [np.array(self.last_gradients[i]) for i in range(self.num_layers)]
         
         if self.contribution_type == 'act_normgrad':
             contributions = []
             for layer in range(self.num_layers):
                 act = self.last_activations[layer][0]
-                grad = self.last_gradients[layer][0]
-                norm_grad = normalize_batch_across_cyx(grad)
-                contributions.append(np.array(act * norm_grad))
+
+                if self.to_numpy:
+                    grad = self.last_gradients[layer][0]
+                    norm_grad = normalize_batch_across_cyx(grad)
+                    contributions.append(np.array(act * norm_grad))
+                else:
+                    grad = self.last_gradients[layer][0]
+                    norm_grad = torch_normalize_batch_across_cyx(grad)
+                    contributions.append(act * norm_grad)
             self.activations = [
                 self.last_activations[layer][0]
                 for layer in range(self.num_layers)
@@ -254,9 +285,16 @@ class Scope:
             for layer in range(self.num_layers):
                 act = self.last_activations[layer][0]
                 grad = self.last_gradients[layer][0]
-                norm_act = normalize_batch_across_cyx(act)
-                norm_grad = normalize_batch_across_cyx(grad)
-                contributions.append(np.array(norm_act* norm_grad))
+
+
+                if self.to_numpy:
+                    contributions.append(np.array(norm_act* norm_grad))
+                    norm_act = normalize_batch_across_cyx(act)
+                    norm_grad = normalize_batch_across_cyx(grad)
+                else:
+                    contributions.append(norm_act* norm_grad)
+                    norm_act = torch_normalize_batch_across_cyx(act)
+                    norm_grad = torch_normalize_batch_across_cyx(grad)
 
             self.activations = [
                 self.last_activations[layer][0]
@@ -272,7 +310,11 @@ class Scope:
             for layer in range(self.num_layers):
                 act = self.last_activations[layer][0]
                 grad = self.last_gradients[layer][0]
-                contributions.append(np.array(act * grad))
+
+                if self.to_numpy:
+                    contributions.append(np.array(act * grad))
+                else:
+                    contributions.append(act * grad)
 
             self.activations = [
                 self.last_activations[layer][0]
@@ -287,10 +329,16 @@ class Scope:
             for layer in range(self.num_layers):
                 interp_activations = self.last_activations[layer]
                 interp_gradients = self.last_gradients[layer]
-                contributions.append(
-                    np.array(
-                        interneuron_integral_approximation(
-                            interp_activations, interp_gradients)))
+
+                if self.to_numpy:
+                    contributions.append(
+                        np.array(
+                            interneuron_integral_approximation(
+                                interp_activations, interp_gradients)))
+                else:
+                    contributions.append(
+                        torch_interneuron_integral_approximation(
+                            interp_activations, interp_gradients))
 
             self.activations = [
                 self.last_activations[layer][-1]
@@ -333,22 +381,6 @@ class Scope:
                 cam = np.maximum(cam, 0)
                 
                 contributions.append(cam)
-
-
-        elif self.contribution_type == 'input_int_grad':
-            contributions = []
-            for layer in range(self.num_layers):
-
-
-                input_int_grads = interneuron_integral_approximation(
-                    self.input_gradients,  # All interpolated inputs you collected
-                    self.input_activations   # All input gradients you collected
-                )
-                contributions.append(input_int_grads)
-
-            self.activations = [self.last_activations[layer][-1] for layer in range(self.num_layers)]
-            self.gradients = [self.last_gradients[layer][-1] for layer in range(self.num_layers)]
-
         else:
             raise ValueError(
                 f"Unknown contribution type: {self.contribution_type}")
@@ -372,9 +404,9 @@ class Scope:
                         c = c.sum((2, 3))
 
                     if 'patch_ei_split' in self.reduction:
-                        g = ei_split(g, patch=True)
-                        a = ei_split(a, patch=True)
-                        c = ei_split(c, patch=True)
+                        g = ei_split(g, dim=-1)
+                        a = ei_split(a, dim=-1)
+                        c = ei_split(c, dim=-1)
 
                     if 'patch_sum' in self.reduction:
                         g = g.sum(1)
@@ -385,6 +417,7 @@ class Scope:
                 self.log_activations[layer].append(a)
                 self.log_contributions[layer].append(c)
 
+        return y
 
 
 def corrupt_stim(stim, sigma=0.03, steps=10):
@@ -402,22 +435,47 @@ def corrupt_stim(stim, sigma=0.03, steps=10):
     return corrupted_stim
 
 
-
 def interpolate_stim(stim, steps=10):
-    # Don't detach, but also don't stack first
+    """
+    Interpolate the stimulus to create a series of inputs for integrated gradients.
+    """
+    stim = stim.detach()
     baseline = torch.zeros_like(stim)
 
-    interp_stim = []
-    for i in range(0, steps + 1):
-        # Create each interpolated stimulus with gradients enabled
-        alpha = float(i) / steps
-        interpolated = baseline + alpha * (stim - baseline)
-        interpolated = interpolated.detach().requires_grad_(True)  # Make each one a leaf
-        interp_stim.append(interpolated)
+    interp_stim = [
+        baseline + (float(i) / steps) * (stim - baseline)
+        for i in range(0, steps + 1)
+    ]
 
-    return interp_stim  # Return list, not stacked tensor
+    interp_stim = torch.stack(interp_stim)
+    interp_stim.requires_grad = True
+    return interp_stim
 
 
+def torch_interneuron_integral_approximation(acts, grads):
+    """
+    Trapezoidal integral approximation for integrated gradients.
+    """
+    igs = []
+    for i, (a, g) in enumerate(zip(acts, grads)):
+        if i == 0:
+            last_act = a
+            continue
+
+        diff_act = a - last_act
+        last_act = a
+
+        trapezoidal = grads[i - 1] + grads[i]
+
+        trapezoidal /= 2
+
+        ig = trapezoidal * diff_act
+        igs.append(ig)
+    
+    igs = torch.stack(igs)
+    igs = torch.sum(igs, axis=0)
+
+    return igs
 def interneuron_integral_approximation(acts, grads):
     """
     Trapezoidal integral approximation for integrated gradients.
