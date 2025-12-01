@@ -26,6 +26,12 @@ class Disruptor:
             output[:, self.channels] = 0
         elif self.style == 'patch_destroy':
             output[:, :, self.channels] = 0
+        elif self.style == 'mlp_destroy':
+            # Hook the input so modify the input
+            input[0][:, :, self.channels] = 0
+        elif self.style == 'att_head_destroy':
+            # Hook the input so modify the input
+            input[0][:, :, self.channels, :] = 0
         elif self.style == 'corrupt':
             output[:, self.channels] += torch.randn_like(
                 output[:, self.channels]) * self.scale
@@ -78,7 +84,9 @@ class Disruptor:
     def activate(self):
         # Find the specified layer in the model
         # Register the hook to zero out specific channels
-        self.hook = self.layer.register_forward_hook(self._hook_fn)
+        if self.style == 'mlp_destroy' or self.style == 'att_head_destroy':
+            self.hook = self.layer.register_forward_pre_hook(self._hook_fn)
+        else: self.hook = self.layer.register_forward_hook(self._hook_fn)
 
     def deactivate(self):
         # Remove the hook to restore normal functionality

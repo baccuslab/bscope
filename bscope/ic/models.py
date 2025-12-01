@@ -95,6 +95,8 @@ def get_model(which_model, return_layers=False, imagenet_path='/data/codec/image
     if return_layers is False:
         return model, val_dataset, val_dataloader
     else:
+        # Extract the specific layer target from kwargs, default to 'block'
+        layer_type = kwargs.get('layer_type', 'block') 
         if 'resnet' in which_model:
             model_layers = []
             for li, layer in enumerate([model.layer1, model.layer2, model.layer3, model.layer4]):
@@ -130,10 +132,30 @@ def get_model(which_model, return_layers=False, imagenet_path='/data/codec/image
             return model, val_dataset, val_dataloader, model_layers
         elif 'vit' in which_model:
             model_layers = []
+            # Iterate through the blocks in the timm Vision Transformer
             for block in model.blocks:
-                model_layers.append(block)
+                
+                if layer_type == 'block':
+                    # 1. Token Features
+                    # We return the whole block. 
+                    # HOOK STRATEGY: Hook the OUTPUT of this module.
+                    model_layers.append(block)
+                    
+                elif layer_type == 'mlp':
+                    # 2. MLP Neurons
+                    # We return the second linear layer (down_proj).
+                    # HOOK STRATEGY: Hook the INPUT of this module (Post-GELU activations).
+                    # timm structure: block.mlp.fc2
+                    model_layers.append(block.mlp.fc2)
+                    
+                elif layer_type == 'attention':
+                    # 3. Attention Heads (z vector)
+                    # We return the final projection layer (W_O).
+                    # HOOK STRATEGY: Hook the INPUT of this module (The 'z' vector).
+                    # timm structure: block.attn.proj
+                    model_layers.append(block.attn.proj)
 
-            print('Found {} layers'.format(len(model_layers)))
+            print(f'Found {len(model_layers)} layers of type {layer_type}')
             
             return model, val_dataset, val_dataloader, model_layers
 
