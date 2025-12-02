@@ -26,12 +26,6 @@ class Disruptor:
             output[:, self.channels] = 0
         elif self.style == 'patch_destroy':
             output[:, :, self.channels] = 0
-        elif self.style == 'mlp_destroy':
-            # Hook the input so modify the input
-            input[0][:, :, self.channels] = 0
-        elif self.style == 'att_head_destroy':
-            # Hook the input so modify the input
-            input[0][:, :, self.channels, :] = 0
         elif self.style == 'corrupt':
             output[:, self.channels] += torch.randn_like(
                 output[:, self.channels]) * self.scale
@@ -80,12 +74,30 @@ class Disruptor:
             raise ValueError(f"Style {self.style} not supported")
 
         return output
+    
+    def _prehook_fn(self, module, input):
+        if self.style == 'mlp_destroy':
+            # Hook the input so modify the input
+            input[0][:, :, self.channels] = 0
+        elif self.style == 'att_head_destroy':
+            # Hook the input so modify the input
+            # (batch, tokens, head*head_dim)
+            # First need to view as (batch, tokens, heads, head_dim)
+            head_dim = input[0].shape[-1] // self.heads
+            input_reshaped = input[0].view(input[0].shape[0], input[0].shape[1], self.heads, head_dim)
+            # Zero out the specified heads
+            input_reshaped[:, :, self.channels, :] = 0
+        else:
+            raise ValueError(f"Style {self.style} not supported")
 
-    def activate(self):
+        return input[0]
+
+    def activate(self, heads=None):
         # Find the specified layer in the model
         # Register the hook to zero out specific channels
+        self.heads = heads
         if self.style == 'mlp_destroy' or self.style == 'att_head_destroy':
-            self.hook = self.layer.register_forward_pre_hook(self._hook_fn)
+            self.hook = self.layer.register_forward_pre_hook(self._prehook_fn)
         else: self.hook = self.layer.register_forward_hook(self._hook_fn)
 
     def deactivate(self):

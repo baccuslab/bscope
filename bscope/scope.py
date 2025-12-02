@@ -126,7 +126,7 @@ class Scope:
         self.surprisal_mu = mu
         self.surprisal_sigma_inv = sigma_inv
 
-    def log_start(self, reduction=None):
+    def log_start(self, reduction=None, heads=None):
         self.logging = True
 
         self.log_gradients = [[] for i in range(self.num_layers)]
@@ -136,6 +136,7 @@ class Scope:
         self.log_outputs = []
 
         self.reduction = reduction
+        self.heads = heads
 
     def log_stop(self):
         for i in range(self.num_layers):
@@ -408,7 +409,13 @@ class Scope:
                         c = c.sum(1)
 
                     if 'att_head_ei_split' in self.reduction:
-                        # (batch, tokens, heads, head_dim), where heads are like channels
+                        # (batch, tokens, heads*head_dim), where heads are like channels
+                        # First reshape to (batch, tokens, heads, head_dim)
+                        n_heads = self.heads
+                        head_dim = g.shape[-1] // n_heads
+                        g = g.reshape(g.shape[0], g.shape[1], n_heads, head_dim)
+                        a = a.reshape(a.shape[0], a.shape[1], n_heads, head_dim)
+                        c = c.reshape(c.shape[0], c.shape[1], n_heads, head_dim)
                         g = ei_split(g, dim=-2)
                         a = ei_split(a, dim=-2)
                         c = ei_split(c, dim=-2)
