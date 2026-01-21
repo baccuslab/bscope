@@ -122,9 +122,14 @@ class Scope:
         self.surprisal_sigma_inv = None
         self.softmax = softmax  # Raw neural outputs
 
+    def wrt_contrastive_top2(self, softmax=True):
+        self.contribution_target = 'contrastive_top2'
+        self.softmax = softmax
+
     def set_surprisal_stats(self, mu, sigma_inv):
         self.surprisal_mu = mu
         self.surprisal_sigma_inv = sigma_inv
+
 
     def log_start(self, reduction=None, heads=None):
         self.logging = True
@@ -179,7 +184,14 @@ class Scope:
             centered = y_target - mu_tensor  # [batch_size, n_neurons]
             surprisal = 0.5 * torch.sum((centered @ sigma_inv_tensor) * centered, dim=1)  # [batch_size]
             return surprisal
-
+        elif self.contribution_target == 'contrastive_top2':
+            top2_values, top2_indices = torch.topk(y, 2, dim=-1)
+            
+            # Compute difference: top-1 minus top-2
+            contrastive_score = top2_values[:, 0] - top2_values[:, 1]
+            
+            # Backward through the difference
+            return contrastive_score
         else:
             raise ValueError(f"Unknown contribution target: {self.contribution_target}")
 
