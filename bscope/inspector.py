@@ -9,7 +9,7 @@ class Inspector:
     A class that logs activations and gradients for multiple layers in a PyTorch model.
     """
 
-    def __init__(self, layers_list, to_numpy=True):
+    def __init__(self, layers_list, hook_input=False, to_numpy=True):
         """
         Initialize the inspector with a list of layers to track.
         
@@ -20,25 +20,41 @@ class Inspector:
         self.activations = [[] for i in range(len(layers_list))]
         self.gradients = [[] for i in range(len(layers_list))]
         self.handles = []
+        self.hook_input = hook_input # Whether to hook the input or output,
+        # defaults to output
         self.to_numpy = to_numpy
 
         # Register hooks for each layer
         for idx, layer in enumerate(self.layers):
-            # Forward hook to capture activations
-            handle_fwd = layer.register_forward_hook(
-                lambda module, input, output, idx=idx: self._store_activation(
-                    idx, output))
+            if not self.hook_input:
+                # Forward hook to capture activations
+                handle_fwd = layer.register_forward_hook(
+                    lambda module, input, output, idx=idx: self._store_activation(
+                        idx, output))
 
-            # Backward hook to capture gradients
-            handle_bwd = layer.register_backward_hook(
-                lambda module, grad_input, grad_output, idx=idx: self.
-                _store_gradient(idx, grad_output[0]))
+                # Backward hook to capture gradients
+                handle_bwd = layer.register_full_backward_hook(
+                    lambda module, grad_input, grad_output, idx=idx: self.
+                    _store_gradient(idx, grad_output[0]))
+            
+            else:
+                # Forward hook to capture activations
+                handle_fwd = layer.register_forward_hook(
+                    lambda module, input, output, idx=idx: self._store_activation(
+                        idx, input))
+
+                # Backward hook to capture gradients
+                handle_bwd = layer.register_full_backward_hook(
+                    lambda module, grad_input, grad_output, idx=idx: self.
+                    _store_gradient(idx, grad_input[0]))
 
             self.handles.append(handle_fwd)
             self.handles.append(handle_bwd)
 
     def _store_activation(self, idx, output):
-        """Store the activation of a specific layer."""
+        """Store the activation of a specific layer.
+            Output could be input too in case of hooking on input.
+        """
         if self.to_numpy:
             if isinstance(output, tuple):
                 self.activations[idx] = output[0].cpu().detach().numpy()

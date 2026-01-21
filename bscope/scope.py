@@ -61,13 +61,13 @@ class Scope:
     log_X is the logging of X
     """
 
-    def __init__(self, model, layer_list, to_numpy=True):
+    def __init__(self, model, layer_list, hook_input=False, to_numpy=True):
         model.eval()
         self.model = model
         self.layer_list = layer_list
         
         self.to_numpy = to_numpy
-        self.inspector = Inspector(layer_list, to_numpy=to_numpy)
+        self.inspector = Inspector(layer_list, hook_input=hook_input, to_numpy=to_numpy)
         self.num_layers = len(layer_list)
 
         self.reduction = None
@@ -126,7 +126,7 @@ class Scope:
         self.surprisal_mu = mu
         self.surprisal_sigma_inv = sigma_inv
 
-    def log_start(self, reduction=None):
+    def log_start(self, reduction=None, heads=None):
         self.logging = True
 
         self.log_gradients = [[] for i in range(self.num_layers)]
@@ -136,6 +136,7 @@ class Scope:
         self.log_outputs = []
 
         self.reduction = reduction
+        self.heads = heads
 
     def log_stop(self):
         for i in range(self.num_layers):
@@ -146,38 +147,45 @@ class Scope:
 
         self.logging = False
 
-    def backward_pass(self, y):
+    def compute_target(self, y):
+        # Use a local variable to avoid modifying the input tensor reference
+        y_target = y
+        if self.softmax:
+            y_target = torch.softmax(y, dim=-1)
+
         if self.contribution_target == 'entropy':
-            entropy = -torch.sum(y * torch.log(y + 1e-9), dim=1)
-            entropy.sum().backward()
-
+            entropy = -torch.sum(y_target * torch.log(y_target + 1e-9), dim=1)
+            return entropy
+        
         elif self.contribution_target == 'output_neuron':
-            y[:, self.neuron_index].sum().backward()
-
+            return y_target[:, self.neuron_index]
+        
         elif self.contribution_target == 'topk':
-
-            sorted, indices = torch.topk(y, self.k, dim=-1)
-            sorted.sum().backward()
-
+            sorted, indices = torch.topk(y_target, self.k, dim=-1)
+            return sorted.sum(dim=1)
+        
         elif self.contribution_target == 'sum':
-            y.sum().backward()
-
+            return y_target.sum(dim=1)
+        
         elif self.contribution_target == 'surprisal':
             if self.surprisal_mu is None or self.surprisal_sigma_inv is None:
                 raise ValueError("Surprisal statistics not set. Call set_surprisal_stats() first.")
         
             # Convert numpy arrays to tensors on the right device
-            mu_tensor = torch.from_numpy(self.surprisal_mu).to(y.device).float()
-            sigma_inv_tensor = torch.from_numpy(self.surprisal_sigma_inv).to(y.device).float()
+            mu_tensor = torch.from_numpy(self.surprisal_mu).to(y_target.device).float()
+            sigma_inv_tensor = torch.from_numpy(self.surprisal_sigma_inv).to(y_target.device).float()
         
             # Compute (y - μ)ᵀ Σ⁻¹ (y - μ)
-            centered = y - mu_tensor  # [batch_size, n_neurons]
+            centered = y_target - mu_tensor  # [batch_size, n_neurons]
             surprisal = 0.5 * torch.sum((centered @ sigma_inv_tensor) * centered, dim=1)  # [batch_size]
-            surprisal.sum().backward()
-
+            return surprisal
 
         else:
-            raise ValueError(f"Unknown contribution target: {target}")
+            raise ValueError(f"Unknown contribution target: {self.contribution_target}")
+
+    def backward_pass(self, y):
+        target = self.compute_target(y)
+        target.sum().backward()
 
     def __call__(self, input_tensor):
         if self.contribution_type is None:
@@ -213,10 +221,12 @@ class Scope:
             device = next(self.model.parameters()).device
             y = self.model(self.stim[step].to(device))
 
+            self.backward_pass(y) # Already contains softmax
+
+            # Operate on a detached copy so we don't modify the autograd graph used for backward()
+            y = y.detach()
             if self.softmax:
                 y = torch.softmax(y, dim=-1)
-
-            self.backward_pass(y)
 
             self.last_outputs.append(y.detach().cpu().numpy())
 
@@ -386,15 +396,36 @@ class Scope:
                         a = a.sum((2, 3))
                         c = c.sum((2, 3))
 
-                    if 'patch_ei_split' in self.reduction:
+                    if 'patch_ei_split' in self.reduction or 'mlp_ei_split' in self.reduction or 'attention_ei_split' in self.reduction:
+                        # (batch, tokens, hidden), where hidden is like channels, or
+                        # (batch, tokens, mlp_hidden), where mlp_hidden is like channels, or
+                        # (batch, tokens, heads*head_dim), where heads*head_dim is like channels
                         g = ei_split(g, dim=-1)
                         a = ei_split(a, dim=-1)
                         c = ei_split(c, dim=-1)
 
-                    if 'patch_sum' in self.reduction:
+                    if 'patch_sum' in self.reduction or 'mlp_sum' in self.reduction or 'attention_sum' in self.reduction:
                         g = g.sum(1)
                         a = a.sum(1)
                         c = c.sum(1)
+
+                    if 'attn_head_ei_split' in self.reduction:
+                        # (batch, tokens, heads*head_dim), where heads are like channels
+                        # First reshape to (batch, tokens, heads, head_dim)
+                        n_heads = self.heads
+                        head_dim = g.shape[-1] // n_heads
+                        g = g.reshape(g.shape[0], g.shape[1], n_heads, head_dim)
+                        a = a.reshape(a.shape[0], a.shape[1], n_heads, head_dim)
+                        c = c.reshape(c.shape[0], c.shape[1], n_heads, head_dim)
+                        g = ei_split(g, dim=-2)
+                        a = ei_split(a, dim=-2)
+                        c = ei_split(c, dim=-2)
+                    
+                    if 'attn_head_sum' in self.reduction:
+                        # Sum over both tokens and head_dim to get (batch, heads)
+                        g = g.sum((-1,-3))
+                        a = a.sum((-1,-3))
+                        c = c.sum((-1,-3))
 
                 self.log_gradients[layer].append(g)
                 self.log_activations[layer].append(a)
