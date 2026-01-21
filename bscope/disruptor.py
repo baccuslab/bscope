@@ -79,7 +79,7 @@ class Disruptor:
         if self.style == 'mlp_destroy':
             # Hook the input so modify the input
             input[0][:, :, self.channels] = 0
-        elif self.style == 'att_head_destroy':
+        elif self.style == 'attn_head_destroy':
             # Hook the input so modify the input
             # (batch, tokens, head*head_dim)
             # First need to view as (batch, tokens, heads, head_dim)
@@ -87,16 +87,21 @@ class Disruptor:
             input_reshaped = input[0].view(input[0].shape[0], input[0].shape[1], self.heads, head_dim)
             # Zero out the specified heads
             input_reshaped[:, :, self.channels, :] = 0
+        elif self.style == 'attn_destroy':
+            # Hook the input so modify the input
+            # (batch, tokens, head*head_dim)
+            # Don't need to reshape, just zero out the specified channels
+            input[0][:, :, self.channels] = 0
         else:
             raise ValueError(f"Style {self.style} not supported")
 
-        return input[0]
+        return None  # Return None to use modified input in-place
 
     def activate(self, heads=None):
         # Find the specified layer in the model
         # Register the hook to zero out specific channels
         self.heads = heads
-        if self.style == 'mlp_destroy' or self.style == 'att_head_destroy':
+        if self.style == 'mlp_destroy' or self.style == 'attn_head_destroy' or self.style == 'attn_destroy':
             self.hook = self.layer.register_forward_pre_hook(self._prehook_fn)
         else: self.hook = self.layer.register_forward_hook(self._hook_fn)
 

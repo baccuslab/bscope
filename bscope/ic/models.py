@@ -149,9 +149,18 @@ def get_model(which_model, return_layers=False, imagenet_path='/data/codec/image
                     model_layers.append(block.mlp.fc2)
                     
                 elif layer_type == 'attention':
-                    # 3. Attention Heads (z vector)
+                    # 3. Attention Channels (individual dimensions in z vector)
                     # We return the final projection layer (W_O).
                     # HOOK STRATEGY: Hook the INPUT of this module (The 'z' vector).
+                    # Each index in head*head_dim is treated as its own channel.
+                    # timm structure: block.attn.proj
+                    model_layers.append(block.attn.proj)
+                    
+                elif layer_type == 'attn_heads':
+                    # 4. Attention Heads (entire heads as channels)
+                    # We return the final projection layer (W_O).
+                    # HOOK STRATEGY: Hook the INPUT of this module (The 'z' vector).
+                    # Each head is treated as a single large channel.
                     # timm structure: block.attn.proj
                     model_layers.append(block.attn.proj)
 

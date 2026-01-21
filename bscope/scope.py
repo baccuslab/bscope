@@ -396,19 +396,20 @@ class Scope:
                         a = a.sum((2, 3))
                         c = c.sum((2, 3))
 
-                    if 'patch_ei_split' in self.reduction or 'mlp_ei_split' in self.reduction:
+                    if 'patch_ei_split' in self.reduction or 'mlp_ei_split' in self.reduction or 'attention_ei_split' in self.reduction:
                         # (batch, tokens, hidden), where hidden is like channels, or
-                        # (batch, tokens, mlp_hidden), where mlp_hidden is like channels
+                        # (batch, tokens, mlp_hidden), where mlp_hidden is like channels, or
+                        # (batch, tokens, heads*head_dim), where heads*head_dim is like channels
                         g = ei_split(g, dim=-1)
                         a = ei_split(a, dim=-1)
                         c = ei_split(c, dim=-1)
 
-                    if 'patch_sum' in self.reduction or 'mlp_sum' in self.reduction:
+                    if 'patch_sum' in self.reduction or 'mlp_sum' in self.reduction or 'attention_sum' in self.reduction:
                         g = g.sum(1)
                         a = a.sum(1)
                         c = c.sum(1)
 
-                    if 'att_head_ei_split' in self.reduction:
+                    if 'attn_head_ei_split' in self.reduction:
                         # (batch, tokens, heads*head_dim), where heads are like channels
                         # First reshape to (batch, tokens, heads, head_dim)
                         n_heads = self.heads
@@ -420,7 +421,7 @@ class Scope:
                         a = ei_split(a, dim=-2)
                         c = ei_split(c, dim=-2)
                     
-                    if 'att_head_sum' in self.reduction:
+                    if 'attn_head_sum' in self.reduction:
                         # Sum over both tokens and head_dim to get (batch, heads)
                         g = g.sum((-1,-3))
                         a = a.sum((-1,-3))
