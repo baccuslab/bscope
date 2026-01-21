@@ -216,7 +216,7 @@ class SSSAE(nn.Module):
         reconstructed = self.dictionary(z)
         return codes, z, reconstructed 
 class STSAE(nn.Module):
-    def __init__(self, data_dim, num_atoms, threshold = 0.95, mlp_hidden_dim=512, encoder=None):
+    def __init__(self, data_dim, num_atoms, threshold = 0.95, mlp_hidden_dim=512, nonnegative=False, encoder=None):
         super(STSAE, self).__init__()
 
 
@@ -225,7 +225,7 @@ class STSAE(nn.Module):
         else:
             self.encoder = DefaultEncoder(data_dim, num_atoms,mlp_hidden_dim)
 
-        self.dictionary = Dictionary(num_atoms, data_dim)
+        self.dictionary = Dictionary(num_atoms, data_dim, nonnegative=nonnegative)
         self.threshold = threshold
     
     def forward(self, x):
@@ -239,10 +239,10 @@ class STSAE(nn.Module):
 
 
 class SigThreshSAE(nn.Module):
-    def __init__(self, data_dim, num_atoms, threshold = 0.95, mlp_hidden_dim=512):
+    def __init__(self, data_dim, num_atoms, threshold = 0.95, mlp_hidden_dim=512, nonnegative=False):
         super(SigThreshSAE, self).__init__()
         self.encoder = Encoder(data_dim, num_atoms,mlp_hidden_dim)
-        self.dictionary = Dictionary(num_atoms, data_dim)
+        self.dictionary = Dictionary(num_atoms, data_dim, nonnegative=nonnegative)
 
         self.threshold = threshold
     
@@ -385,4 +385,3 @@ def load_sae(path, data, device, bs=1024, eval_mode=True, alive_threshold=0):
     dictionary = dictionary[alive_modes]
     
     return sae, loadings, dictionary, data_agg, reconstructed_agg, r2
-

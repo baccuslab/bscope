@@ -184,6 +184,7 @@ class Scope:
             centered = y_target - mu_tensor  # [batch_size, n_neurons]
             surprisal = 0.5 * torch.sum((centered @ sigma_inv_tensor) * centered, dim=1)  # [batch_size]
             return surprisal
+            
         elif self.contribution_target == 'contrastive_top2':
             top2_values, top2_indices = torch.topk(y, 2, dim=-1)
             
