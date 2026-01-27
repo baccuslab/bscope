@@ -20,6 +20,7 @@ import bscope
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy import signal
+import h5py as h5
 
 def get_top_mode(mode_summary, layer, class_idx, which_mode=1):
     corrs = mode_summary.layers[layer].imgnet_corr_mtx
@@ -30,6 +31,32 @@ def get_top_mode(mode_summary, layer, class_idx, which_mode=1):
     loadings = mode_summary.layers[layer].loadings[:, top_mode]
     corr = corrs[top_mode, class_idx]
     return top_mode, atom, loadings, corr
+
+def get_summed_atom(path, layer, class_idx, mode='top', corr_threshold=0.2):
+    with h5.File(path, 'r') as f:
+        layer_key = str(layer)
+        if layer_key not in f['layers']:
+            return None, None
+
+        corr = f['layers'][layer_key]['imgnet_corr_mtx'][:]
+        dictionary = f['layers'][layer_key]['dictionary'][:]
+        class_corrs = corr[class_idx, :]
+        
+        if mode == 'top':
+            top_idx = np.argmax(class_corrs)
+            return dictionary[top_idx], 1
+        elif mode == 'sum':
+            mode_idxs = np.where(class_corrs > corr_threshold)[0]
+            
+            if len(mode_idxs) == 0:
+                # FALLBACK: No modes above threshold, use top mode
+                print(f"      Warning: No modes above threshold {corr_threshold} for class {class_idx}, falling back to top mode")
+                top_idx = np.argmax(class_corrs)
+                return dictionary[top_idx], 1
+            else:
+                # Sum all modes above threshold
+                summed_atom = dictionary[mode_idxs].sum(axis=0)
+                return summed_atom, len(mode_idxs)
 
 def single_image_semantic_loading(mode_summary, layer, image_idx):
     corrs = mode_summary.layers[layer].imgnet_corr_mtx

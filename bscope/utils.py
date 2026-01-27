@@ -2,6 +2,7 @@ import numpy as np
 from scipy import integrate, signal
 import torch
 import matplotlib as mpl
+import re
 Epsilon = 1e-6
 
 
@@ -368,3 +369,39 @@ def style_plot(ax):
     mpl.rcParams['font.size'] = 18
     mpl.rcParams['xtick.labelsize'] = 16
     mpl.rcParams['ytick.labelsize'] = 16
+
+
+def parse_config(config_name):
+    """Parse hyperparams from config directory name."""
+    params = {
+        'config_name': config_name,
+        'threshold': None,
+        'N': None,
+        'atom_l1': None,
+        'mlp_size': None,
+        'nonneg': None,
+        'sweep_type': None
+    }
+    
+    # Standard format
+    standard_match = re.match(r'hypersweep_(\d+\.?\d*)_(\d+)_(\d+\.?\d*e?-?\d*)', config_name)
+    if standard_match:
+        params['threshold'] = float(standard_match.group(1))
+        params['N'] = int(standard_match.group(2))
+        params['atom_l1'] = float(standard_match.group(3)) if standard_match.group(3) != '0' else 0.0
+        params['sweep_type'] = 'grid'
+        return params
+    
+    # MLP format
+    mlp_match = re.match(r'hypersweep_mlpsize_(\d+)_nonneg_(True|False)_(\d+\.?\d*)_(\d+)_(\d+\.?\d*e?-?\d*)', config_name)
+    if mlp_match:
+        params['mlp_size'] = int(mlp_match.group(1))
+        params['nonneg'] = mlp_match.group(2) == 'True'
+        params['threshold'] = float(mlp_match.group(3))
+        params['N'] = int(mlp_match.group(4))
+        params['atom_l1'] = float(mlp_match.group(5)) if mlp_match.group(5) != '0' else 0.0
+        params['sweep_type'] = 'mlp'
+        return params
+    
+    # No match - return dict with all fields as None (except config_name)
+    return params
