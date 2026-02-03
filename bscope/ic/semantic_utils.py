@@ -22,7 +22,7 @@ import matplotlib.pyplot as plt
 from scipy import signal
 import h5py as h5
 
-def get_top_mode(mode_summary, layer, class_idx, which_mode=1):
+def get_top_mode(mode_summary, layer, class_idx, which_mode=0):
     corrs = mode_summary.layers[layer].imgnet_corr_mtx
     top_mode = np.argsort(corrs[:, class_idx])[::-1]
     top_mode = top_mode[which_mode]
