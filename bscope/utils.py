@@ -204,7 +204,17 @@ def mtx_corr(A, B):
     correlation_matrix = A_norm @ B_norm.T / A.shape[1]
     return correlation_matrix
 
+def mtx_cov(A, B):
+    A = A.T
+    B = B.T
+    A_mean = A.mean(axis=1, keepdims=True)
+    B_mean = B.mean(axis=1, keepdims=True)
+    A_centered = A - A_mean
+    B_centered = B - B_mean
+    covariance_matrix = A_centered @ B_centered.T / A.shape[1]
+    return covariance_matrix
 
+    
 def ei_split(matrix, dim=1):
     """
     Splits a matrix into positive and negative parts.
