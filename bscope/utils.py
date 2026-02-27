@@ -415,3 +415,113 @@ def parse_config(config_name):
     
     # No match - return dict with all fields as None (except config_name)
     return params
+
+def flat2d(x):
+    """Flattens all dimensions after the first of the given array
+
+    Useful for collapsing spatial dimensions in a spatiotemporal
+    stimulus or filter.
+    """
+    return x.reshape(x.shape[0], -1)
+                                
+
+def lowranksta(sta_orig, k=10):
+    """
+    Constructs a rank-k approximation to the given spatiotemporal STA.
+    This is useful for estimating a spatial and temporal kernel for an
+    STA or for denoising.
+
+    Parameters
+    ----------
+    sta_orig : array_like
+        3D STA to be separated, shaped as ``(time, space, space)``.
+
+    k : int
+        Number of components to keep (rank of the reduced STA).
+
+    Returns
+    -------
+    sk : array_like
+        The rank-k estimate of the original STA.
+
+    u : array_like
+        The top ``k`` temporal components (each column is a component).
+
+    s : array_like
+        The top ``k`` singular values.
+
+    v : array_like
+        The top ``k`` spatial components (each row is a component). These
+        components have all spatial dimensions collapsed to one.
+
+    Notes
+    -----
+    This method requires that the STA be 3D. To decompose a STA into a
+    temporal and 1-dimensional spatial component, simply promote the STA
+    to 3D before calling this method.
+
+    Despite the name this method accepts both an STA or a linear filter.
+    The components estimated for one will be flipped versions of the other.
+    """
+
+    # work with a copy of the STA (prevents corrupting the input)
+    f = sta_orig.copy() - sta_orig.mean()
+
+    # Compute the SVD of the full STA
+    assert f.ndim >= 2, "STA must be at least 2-D"
+    u, s, v = np.linalg.svd(flat2d(f), full_matrices=False)
+
+    # Keep the top k components
+    k = np.min([k, s.size])
+    u = u[:, :k]
+    s = s[:k]
+    v = v[:k, :]
+
+    # Compute the rank-k STA
+    sk = (u.dot(np.diag(s).dot(v))).reshape(f.shape)
+
+    # Ensure that the computed STA components have the correct sign.
+    # The full STA should have positive projection onto first temporal
+    # component of the low-rank STA.
+    peak_frame_idx = np.argmax(np.max(np.abs(f), axis=(1, 2)))
+    peak_frame = f[peak_frame_idx]
+    peak_spatial_response = v[0].reshape(f.shape[1:])
+
+    # Check correlation between peak frame and first spatial component
+    correlation = np.corrcoef(peak_frame.flatten(), peak_spatial_response.flatten())[0, 1]
+    sign = np.sign(correlation)
+
+    #old code 
+    # sign = np.sign(np.tensordot(u[:, 0], f, axes=1).sum())
+    u *= sign
+    v *= sign
+
+    # Return the rank-k approximate STA, and the SVD components
+    return sk, u, s, v
+
+
+def decompose(sta, k=4):
+    """
+    Decomposes a spatiotemporal STA into a spatial and temporal kernel.
+    Parameters
+    ----------
+    sta : array_like
+        The full 3-dimensional STA to be decomposed, of shape ``(t, nx, ny)``.
+    Returns
+    -------
+    s : array_like
+        The spatial kernel, with shape ``(nx * ny,)``.
+    t : array_like
+        The temporal kernel, with shape ``(t,)``.
+    """
+    sk, u, s, v = lowranksta(sta, k=k)
+
+    vs = []
+    us = []
+    ss = []
+    for i in range(k):
+        vs.append(v[i].reshape(sta.shape[1:]))
+        us.append(u[:, i])
+        ss.append(s[i])
+
+    return vs, us, ss

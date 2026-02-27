@@ -57,9 +57,9 @@ class Inspector:
         """
         if self.to_numpy:
             if isinstance(output, tuple):
-                self.activations[idx] = output[0].cpu().detach().numpy()
+                self.activations[idx] = output[0].cpu().detach().float().numpy()
             else:
-                self.activations[idx] = output.cpu().detach().numpy()
+                self.activations[idx] = output.cpu().detach().float().numpy()
         else:
             if isinstance(output, tuple):
                 self.activations[idx] = output[0]
