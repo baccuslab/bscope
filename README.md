@@ -302,7 +302,7 @@ plt.savefig('fc_contributions.png')
 
 ### Causal Perturbation with Disruptor
 
-The `Disruptor` class modifies layer activations mid-forward-pass for ablation studies:
+The `Disruptor` class modifies layer activations mid-forward-pass for ablations:
 
 ```python
 from bscope import Disruptor
