@@ -542,7 +542,12 @@ See `quickstart.py` for a complete working example.
 If you use bscope in your research, please cite:
 
 ```
-[Add citation information here]
+@inproceedings{melanderCausalInterpretationNeural2026,
+  title = {Causal {{Interpretation}} of {{Neural Network Computations}} with {{Contribution Decomposition}}},
+  booktitle = {The {{Fourteenth International Conference}} on {{Learning Representations}}, {{ICLR}} 2026, {{Rio}} de {{Janeiro}}, {{Brazil}}, {{April}} 23-27, 2026},
+  author = {Melander, Joshua Brendan and Alaoui, Zaki and Liu, Shenghua and Ganguli, Surya and Baccus, Stephen},
+  year = {2026}
+}
 ```
 
 ## License
