@@ -1,6 +1,6 @@
 # bscope
 
-**bscope** is a PyTorch library for neural network interpretation through gradient-based attribution methods. It helps you understand which neurons and layers contribute most to your model's predictions. It supports CNNs, fully-connected networks, and Vision Transformers (via `timm`).
+**bscope** is a library designed to simplify access to the intermediate layers of your favorite pytorch model. Compute, access, reduce, and log activations, gradients, and contributions (see Melander, Alaoui, Liu, Ganguli, and Baccus 2026) with a few extra lines of code. Works for any nn.Module - out-of-the-box support for CNNs, MLPs, and Vision Transformers. 
 
 ## Architecture
 
